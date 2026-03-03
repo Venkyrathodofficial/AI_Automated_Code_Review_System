@@ -329,7 +329,29 @@ function analyzeFile(filePath, content) {
 async function scanRepository(repoFullName, userId, ref) {
   console.log(`🔍 Starting full scan of ${repoFullName} for user ${userId}`);
 
-  const files = await fetchRepoTree(repoFullName);
+  let files;
+  try {
+    files = await fetchRepoTree(repoFullName);
+  } catch (err) {
+    console.error(`   ❌ Cannot access repo ${repoFullName}:`, err.message);
+    // Record error so user sees it on the dashboard
+    await supabase.from("code_reviews").insert([{
+      user_id: userId,
+      repository_name: repoFullName,
+      file_name: "—",
+      issue_title: "Scan failed — cannot access repository",
+      issue_description: `Could not fetch files from GitHub for ${repoFullName}. ${err.message.includes("404") ? "The repository may be private or the name may be incorrect. For private repos, set GITHUB_TOKEN in your backend environment." : err.message}`,
+      severity: "Medium",
+      suggestion: "Ensure the repository exists and is public, or add a GitHub personal access token (GITHUB_TOKEN) in your backend environment variables for private repo access.",
+      optimization_tip: "Go to github.com/settings/tokens → Generate new token (classic) → Select 'repo' scope → Add the token as GITHUB_TOKEN in Render environment variables.",
+      risk_score: 0,
+      commit_id: "scan-error",
+      commit_message: "Scan failed",
+      status: "Open",
+    }]);
+    return { filesScanned: 0, issuesFound: 0, error: err.message };
+  }
+
   console.log(`   Found ${files.length} code files to analyze`);
 
   // Limit to 50 files per scan to stay within GitHub rate limits
@@ -587,6 +609,17 @@ app.post("/api/repositories/connect", authMiddleware, async (req, res) => {
     }
     if (!repoFullName || !repoFullName.includes("/")) {
       return res.status(400).json({ error: "Provide repo as owner/repo" });
+    }
+
+    // Verify the repo is accessible on GitHub before connecting
+    const checkRes = await fetch(`https://api.github.com/repos/${repoFullName.trim()}`, { headers: ghHeaders() });
+    if (checkRes.status === 404) {
+      return res.status(400).json({
+        error: `Repository "${repoFullName}" not found on GitHub. It may be private or the name may be incorrect.${!GITHUB_TOKEN ? " For private repos, add a GITHUB_TOKEN to the backend environment." : ""}`,
+      });
+    }
+    if (!checkRes.ok) {
+      console.error(`GitHub API returned ${checkRes.status} for ${repoFullName}`);
     }
 
     const webhookSecret = crypto.randomBytes(20).toString("hex");
