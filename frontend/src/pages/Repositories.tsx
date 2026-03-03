@@ -18,13 +18,14 @@ import {
   Webhook,
   ArrowRight,
   CheckCircle2,
+  RefreshCw,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { useRepositories, useConnectRepo, useDisconnectRepo } from "@/hooks/useReviews";
+import { useRepositories, useConnectRepo, useDisconnectRepo, useScanRepo } from "@/hooks/useReviews";
 import { formatDistanceToNow } from "date-fns";
 import type { ConnectRepoResult } from "@/lib/api";
 
@@ -44,12 +45,14 @@ const Repositories = () => {
   const { data: repositories = [], isLoading } = useRepositories();
   const connectMutation = useConnectRepo();
   const disconnectMutation = useDisconnectRepo();
+  const scanMutation = useScanRepo();
 
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [repoInput, setRepoInput] = useState("");
   const [webhookResult, setWebhookResult] = useState<ConnectRepoResult | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
+  const [scanning, setScanning] = useState<string | null>(null);
 
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,6 +82,15 @@ const Repositories = () => {
       await disconnectMutation.mutateAsync(repoName);
     } finally {
       setDisconnecting(null);
+    }
+  };
+
+  const handleScan = async (repoName: string) => {
+    setScanning(repoName);
+    try {
+      await scanMutation.mutateAsync(repoName);
+    } finally {
+      setTimeout(() => setScanning(null), 3000);
     }
   };
 
@@ -209,6 +221,20 @@ const Repositories = () => {
                           </div>
 
                           <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-primary hover:text-primary"
+                              onClick={() => handleScan(repo.name)}
+                              disabled={scanning === repo.name}
+                              title="Re-scan repository"
+                            >
+                              {scanning === repo.name ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <RefreshCw className="h-3.5 w-3.5" />
+                              )}
+                            </Button>
                             <Button
                               variant="ghost"
                               size="sm"

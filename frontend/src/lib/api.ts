@@ -128,3 +128,19 @@ export async function disconnectRepository(
   );
   if (!res.ok) throw new Error("Failed to disconnect repository");
 }
+
+export async function scanRepository(
+  repoFullName: string
+): Promise<{ success: boolean; message: string }> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${BASE}/repositories/scan`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ repoFullName }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Failed to scan" }));
+    throw new Error(err.error || "Failed to start scan");
+  }
+  return res.json();
+}

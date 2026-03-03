@@ -6,6 +6,7 @@ import {
   updateReviewStatus,
   connectRepository,
   disconnectRepository,
+  scanRepository,
   type ReviewRow,
 } from "@/lib/api";
 import type { Issue } from "@/data/mockData";
@@ -97,6 +98,21 @@ export function useDisconnectRepo() {
       qc.invalidateQueries({ queryKey: ["repositories"] });
       qc.invalidateQueries({ queryKey: ["reviews"] });
       qc.invalidateQueries({ queryKey: ["stats"] });
+    },
+  });
+}
+
+export function useScanRepo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (repoFullName: string) => scanRepository(repoFullName),
+    onSuccess: () => {
+      // Invalidate after a short delay to allow scan to complete
+      setTimeout(() => {
+        qc.invalidateQueries({ queryKey: ["repositories"] });
+        qc.invalidateQueries({ queryKey: ["reviews"] });
+        qc.invalidateQueries({ queryKey: ["stats"] });
+      }, 5000);
     },
   });
 }
