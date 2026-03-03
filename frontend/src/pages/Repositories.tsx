@@ -54,8 +54,13 @@ const Repositories = () => {
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!repoInput.trim()) return;
+    // Auto-parse GitHub URLs: https://github.com/owner/repo → owner/repo
+    const parsed = repoInput.trim()
+      .replace(/^https?:\/\/(www\.)?github\.com\//, "")
+      .replace(/\.git$/, "")
+      .replace(/\/$/, "");
     try {
-      const result = await connectMutation.mutateAsync(repoInput.trim());
+      const result = await connectMutation.mutateAsync(parsed);
       setWebhookResult(result);
     } catch {
       // error is in connectMutation.error

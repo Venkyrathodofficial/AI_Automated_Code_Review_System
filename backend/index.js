@@ -13,10 +13,19 @@ app.use(bodyParser.json());
 // ============================
 // Supabase Setup
 // ============================
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY
-);
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY;
+
+// Admin client — used for auth verification and non-user-scoped ops
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Create a Supabase client scoped to a specific user's JWT
+// This makes auth.uid() in RLS policies match the user
+function supabaseForUser(token) {
+  return createClient(supabaseUrl, supabaseKey, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
+}
 
 // ============================
 // Auth Middleware — extracts user from Bearer token
@@ -36,6 +45,8 @@ async function authMiddleware(req, res, next) {
   }
   req.user = user;
   req.token = token;
+  // Attach a user-scoped Supabase client so RLS auth.uid() works
+  req.supabase = supabaseForUser(token);
   next();
 }
 
@@ -51,7 +62,7 @@ app.get("/", (req, res) => {
 // ============================
 app.get("/api/repositories", authMiddleware, async (req, res) => {
   try {
-    const { data: userRepos, error: repoErr } = await supabase
+    const { data: userRepos, error: repoErr } = await req.supabase
       .from("user_repositories")
       .select("*")
       .eq("user_id", req.user.id)
@@ -67,7 +78,7 @@ app.get("/api/repositories", authMiddleware, async (req, res) => {
 
     const repoNames = userRepos.map((r) => r.repo_full_name);
 
-    const { data: reviews, error: revErr } = await supabase
+    const { data: reviews, error: revErr } = await req.supabase
       .from("code_reviews")
       .select("*")
       .eq("user_id", req.user.id)
@@ -142,14 +153,21 @@ app.get("/api/repositories", authMiddleware, async (req, res) => {
 // ============================
 app.post("/api/repositories/connect", authMiddleware, async (req, res) => {
   try {
-    const { repoFullName } = req.body;
+    let { repoFullName } = req.body;
+    // Auto-parse GitHub URLs: https://github.com/owner/repo → owner/repo
+    if (repoFullName) {
+      repoFullName = repoFullName.trim()
+        .replace(/^https?:\/\/(www\.)?github\.com\//, "")
+        .replace(/\.git$/, "")
+        .replace(/\/$/, "");
+    }
     if (!repoFullName || !repoFullName.includes("/")) {
       return res.status(400).json({ error: "Provide repo as owner/repo" });
     }
 
     const webhookSecret = crypto.randomBytes(20).toString("hex");
 
-    const { data, error } = await supabase
+    const { data, error } = await req.supabase
       .from("user_repositories")
       .upsert(
         {
@@ -198,7 +216,7 @@ app.post("/api/repositories/connect", authMiddleware, async (req, res) => {
 app.delete("/api/repositories/:repoName", authMiddleware, async (req, res) => {
   try {
     const repoFullName = decodeURIComponent(req.params.repoName);
-    const { error } = await supabase
+    const { error } = await req.supabase
       .from("user_repositories")
       .delete()
       .eq("user_id", req.user.id)
@@ -218,7 +236,7 @@ app.delete("/api/repositories/:repoName", authMiddleware, async (req, res) => {
 // ============================
 app.get("/api/reviews", authMiddleware, async (req, res) => {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await req.supabase
       .from("code_reviews")
       .select("*")
       .eq("user_id", req.user.id)
@@ -238,7 +256,7 @@ app.get("/api/reviews", authMiddleware, async (req, res) => {
 // ============================
 app.get("/api/stats", authMiddleware, async (req, res) => {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await req.supabase
       .from("code_reviews")
       .select("*")
       .eq("user_id", req.user.id);
@@ -269,7 +287,7 @@ app.patch("/api/reviews/:id", authMiddleware, async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    const { data, error } = await supabase
+    const { data, error } = await req.supabase
       .from("code_reviews")
       .update({ status })
       .eq("id", id)
