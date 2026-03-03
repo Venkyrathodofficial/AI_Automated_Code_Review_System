@@ -1,4 +1,4 @@
-import { Code2, LayoutDashboard, GitFork, AlertTriangle, Settings, LogOut } from "lucide-react";
+import { ShieldCheck, LayoutDashboard, GitFork, AlertTriangle, Settings, LogOut, HelpCircle } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
@@ -15,10 +15,13 @@ import {
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
 
-const menuItems = [
+const mainMenu = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Repositories", url: "/repositories", icon: GitFork },
   { title: "Issues", url: "/issues", icon: AlertTriangle },
+];
+
+const generalMenu = [
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 
@@ -35,37 +38,39 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
-      <SidebarContent className="bg-sidebar pt-5 flex flex-col">
-        {/* Logo */}
-        <div className="flex items-center gap-3 px-4 mb-6">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary">
-            <Code2 className="h-4 w-4 text-primary-foreground" />
+      <SidebarContent className="bg-sidebar pt-6 flex flex-col">
+        {/* Brand */}
+        <div className="flex items-center gap-3 px-4 mb-8">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary shadow-sm">
+            <ShieldCheck className="h-5 w-5 text-primary-foreground" />
           </div>
           {!collapsed && (
-            <span className="text-sm font-bold tracking-tight text-foreground">
-              AI Code Review
-            </span>
+            <div>
+              <span className="text-[15px] font-extrabold tracking-tight text-foreground">
+                CodeLens
+              </span>
+              <span className="text-[15px] font-extrabold tracking-tight text-primary ml-0.5">AI</span>
+            </div>
           )}
         </div>
 
-        <Separator className="mx-4 mb-4 w-auto" />
-
+        {/* Menu */}
         <SidebarGroup>
-          <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-sidebar-muted font-semibold px-4 mb-1">
-            Navigation
+          <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.15em] text-sidebar-muted font-semibold px-4 mb-1.5">
+            Menu
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {menuItems.map((item) => (
+              {mainMenu.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild className="h-9">
+                  <SidebarMenuButton asChild className="h-10">
                     <NavLink
                       to={item.url}
                       end={item.url === "/"}
-                      className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                      activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                      className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium text-sidebar-foreground transition-all duration-200 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                      activeClassName="bg-primary text-primary-foreground shadow-sm hover:bg-primary hover:text-primary-foreground"
                     >
-                      <item.icon className="h-4 w-4 shrink-0" />
+                      <item.icon className="h-[18px] w-[18px] shrink-0" />
                       {!collapsed && <span>{item.title}</span>}
                     </NavLink>
                   </SidebarMenuButton>
@@ -75,13 +80,38 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <div className="mt-auto px-3 pb-4">
-          <Separator className="mb-4" />
+        {/* General */}
+        <SidebarGroup className="mt-2">
+          <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.15em] text-sidebar-muted font-semibold px-4 mb-1.5">
+            General
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {generalMenu.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton asChild className="h-10">
+                    <NavLink
+                      to={item.url}
+                      className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium text-sidebar-foreground transition-all duration-200 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                      activeClassName="bg-primary text-primary-foreground shadow-sm hover:bg-primary hover:text-primary-foreground"
+                    >
+                      <item.icon className="h-[18px] w-[18px] shrink-0" />
+                      {!collapsed && <span>{item.title}</span>}
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <div className="mt-auto px-3 pb-4 space-y-1">
+          <Separator className="mb-3" />
           <button
             onClick={handleLogout}
-            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium text-sidebar-foreground transition-all duration-200 hover:bg-destructive/10 hover:text-destructive"
           >
-            <LogOut className="h-4 w-4 shrink-0" />
+            <LogOut className="h-[18px] w-[18px] shrink-0" />
             {!collapsed && <span>Log Out</span>}
           </button>
         </div>

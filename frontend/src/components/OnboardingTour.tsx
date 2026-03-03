@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Code2,
+  ShieldCheck,
   GitFork,
   Webhook,
   BarChart3,
@@ -28,7 +28,7 @@ interface TourStep {
 const tourSteps: TourStep[] = [
   {
     icon: <Sparkles className="h-8 w-8 text-primary" />,
-    title: "Welcome to AI Code Review!",
+    title: "Welcome to CodeLens AI!",
     description:
       "Your intelligent code review assistant. We analyze every commit you push to GitHub, find security issues, bugs, and performance problems — all automatically.",
     highlight: "Let's get you set up in 3 simple steps.",
@@ -103,7 +103,7 @@ export function OnboardingTour() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
       >
         <motion.div
           key={step}
@@ -113,30 +113,30 @@ export function OnboardingTour() {
           className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
         >
           {/* Header gradient */}
-          <div className="relative h-40 bg-gradient-to-br from-primary/20 via-primary/10 to-transparent flex items-center justify-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-card shadow-lg border border-border">
+          <div className="relative h-44 bg-gradient-to-br from-primary/15 via-primary/8 to-emerald-50/50 dark:to-emerald-900/10 flex items-center justify-center">
+            <div className="flex h-18 w-18 items-center justify-center rounded-2xl bg-card shadow-lg border border-border p-4">
               {current.icon}
             </div>
             <Button
               variant="ghost"
               size="sm"
-              className="absolute top-3 right-3 h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+              className="absolute top-3 right-3 h-8 w-8 p-0 text-muted-foreground hover:text-foreground rounded-xl"
               onClick={handleClose}
             >
               <X className="h-4 w-4" />
             </Button>
 
             {/* Step indicators */}
-            <div className="absolute bottom-3 flex items-center gap-1.5">
+            <div className="absolute bottom-4 flex items-center gap-2">
               {tourSteps.map((_, idx) => (
                 <div
                   key={idx}
-                  className={`h-1.5 rounded-full transition-all duration-300 ${
+                  className={`rounded-full transition-all duration-300 ${
                     idx === step
-                      ? "w-6 bg-primary"
+                      ? "w-7 h-2 bg-primary"
                       : idx < step
-                      ? "w-1.5 bg-primary/50"
-                      : "w-1.5 bg-muted-foreground/30"
+                      ? "w-2 h-2 bg-primary/50"
+                      : "w-2 h-2 bg-muted-foreground/25"
                   }`}
                 />
               ))}
@@ -145,12 +145,12 @@ export function OnboardingTour() {
 
           {/* Content */}
           <div className="p-6 text-center">
-            <h2 className="text-lg font-bold text-foreground mb-2">{current.title}</h2>
-            <p className="text-sm text-muted-foreground leading-relaxed mb-3">
+            <h2 className="text-lg font-extrabold text-foreground mb-2">{current.title}</h2>
+            <p className="text-sm text-muted-foreground leading-relaxed mb-4">
               {current.description}
             </p>
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 text-primary text-xs font-medium px-3 py-1.5">
-              <CheckCircle2 className="h-3 w-3" />
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 text-primary text-xs font-semibold px-3.5 py-1.5">
+              <CheckCircle2 className="h-3.5 w-3.5" />
               {current.highlight}
             </div>
           </div>
@@ -160,7 +160,7 @@ export function OnboardingTour() {
             <Button
               variant="ghost"
               size="sm"
-              className="text-xs"
+              className="text-xs rounded-xl"
               onClick={() => (isFirst ? handleClose() : setStep(step - 1))}
             >
               {isFirst ? (
@@ -173,13 +173,13 @@ export function OnboardingTour() {
               )}
             </Button>
 
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[11px] text-muted-foreground font-medium">
               {step + 1} of {tourSteps.length}
             </p>
 
             <Button
               size="sm"
-              className="text-xs"
+              className="text-xs rounded-xl"
               onClick={() => (isLast ? handleFinish() : setStep(step + 1))}
             >
               {isLast ? (

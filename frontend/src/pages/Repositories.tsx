@@ -30,9 +30,9 @@ import { formatDistanceToNow } from "date-fns";
 import type { ConnectRepoResult } from "@/lib/api";
 
 const getHealthColor = (score: number) => {
-  if (score >= 80) return "text-success";
-  if (score >= 60) return "text-warning";
-  return "text-critical";
+  if (score >= 80) return "text-emerald-600 dark:text-emerald-400";
+  if (score >= 60) return "text-amber-600 dark:text-amber-400";
+  return "text-red-600 dark:text-red-400";
 };
 
 const getHealthBg = (score: number) => {
@@ -57,7 +57,6 @@ const Repositories = () => {
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!repoInput.trim()) return;
-    // Auto-parse GitHub URLs: https://github.com/owner/repo → owner/repo
     const parsed = repoInput.trim()
       .replace(/^https?:\/\/(www\.)?github\.com\//, "")
       .replace(/\.git$/, "")
@@ -115,15 +114,15 @@ const Repositories = () => {
                   {isLoading ? "Loading..." : `${repositories.length} repositor${repositories.length === 1 ? "y" : "ies"} connected`}
                 </p>
               </div>
-              <Button size="sm" className="h-8 text-xs w-full sm:w-auto" onClick={() => setShowConnectModal(true)}>
-                <Plus className="h-3.5 w-3.5 mr-1.5" />
+              <Button size="sm" className="h-9 text-xs w-full sm:w-auto rounded-xl gap-1.5" onClick={() => setShowConnectModal(true)}>
+                <Plus className="h-3.5 w-3.5" />
                 Connect Repository
               </Button>
             </div>
 
             {isLoading ? (
               <div className="flex items-center justify-center py-20">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <Loader2 className="h-6 w-6 animate-spin text-primary/60" />
               </div>
             ) : repositories.length === 0 ? (
               /* Empty State */
@@ -135,11 +134,11 @@ const Repositories = () => {
                 <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 mb-4">
                   <GitFork className="h-8 w-8 text-primary" />
                 </div>
-                <h3 className="text-base font-semibold text-foreground mb-1">No repositories connected</h3>
+                <h3 className="text-base font-bold text-foreground mb-1">No repositories connected</h3>
                 <p className="text-sm text-muted-foreground mb-6 max-w-sm">
                   Connect a GitHub repository to start receiving automated code reviews on every push.
                 </p>
-                <Button onClick={() => setShowConnectModal(true)}>
+                <Button onClick={() => setShowConnectModal(true)} className="rounded-xl h-10">
                   <Plus className="h-4 w-4 mr-2" />
                   Connect Your First Repository
                 </Button>
@@ -161,18 +160,18 @@ const Repositories = () => {
                       initial={{ opacity: 0, y: 12 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.3, delay: i * 0.06 }}
-                      className="rounded-xl border border-border bg-card p-4 sm:p-5 shadow-sm hover:shadow-md transition-all"
+                      className="rounded-2xl border border-border bg-card p-4 sm:p-5 shadow-sm hover:shadow-md transition-all"
                     >
                       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-3">
-                            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-                              <GitFork className="h-4 w-4 text-primary" />
+                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                              <GitFork className="h-4.5 w-4.5 text-primary" />
                             </div>
                             <div>
                               <div className="flex items-center gap-2">
-                                <h3 className="text-sm font-semibold text-card-foreground">{repoShort}</h3>
-                                <Badge variant="outline" className="text-[10px] h-5 capitalize">
+                                <h3 className="text-sm font-bold text-card-foreground">{repoShort}</h3>
+                                <Badge variant="outline" className={`text-[10px] h-5 capitalize rounded-lg ${statusLabel === "clean" ? "border-emerald-200 text-emerald-600 bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:bg-emerald-900/20" : "border-primary/30 text-primary bg-primary/5"}`}>
                                   {statusLabel}
                                 </Badge>
                               </div>
@@ -181,16 +180,16 @@ const Repositories = () => {
                           </div>
 
                           <div className="flex flex-wrap items-center gap-3 sm:gap-5 mt-4 text-xs text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <FileCode2 className="h-3 w-3" />
+                            <span className="flex items-center gap-1.5">
+                              <FileCode2 className="h-3.5 w-3.5" />
                               {repo.filesReviewed} file{repo.filesReviewed !== 1 ? "s" : ""} reviewed
                             </span>
-                            <span className="flex items-center gap-1">
-                              <AlertTriangle className="h-3 w-3" />
+                            <span className="flex items-center gap-1.5">
+                              <AlertTriangle className="h-3.5 w-3.5" />
                               {totalIssues} issue{totalIssues !== 1 ? "s" : ""}
                             </span>
-                            <span className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
+                            <span className="flex items-center gap-1.5">
+                              <Clock className="h-3.5 w-3.5" />
                               Last reviewed {lastReview}
                             </span>
                           </div>
@@ -200,23 +199,23 @@ const Repositories = () => {
                           {/* Health Score */}
                           <div className="text-center min-w-[80px]">
                             <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Health</p>
-                            <p className={`text-lg font-bold ${getHealthColor(repo.healthScore)}`}>{repo.healthScore}%</p>
-                            <Progress value={repo.healthScore} className={`h-1 mt-1 [&>div]:${getHealthBg(repo.healthScore)}`} />
+                            <p className={`text-xl font-extrabold ${getHealthColor(repo.healthScore)}`}>{repo.healthScore}%</p>
+                            <Progress value={repo.healthScore} className={`h-1.5 mt-1.5 rounded-full [&>div]:${getHealthBg(repo.healthScore)}`} />
                           </div>
 
-                          {/* Issues */}
+                          {/* Issues breakdown */}
                           <div className="flex items-center gap-2">
-                            <div className="text-center px-2">
+                            <div className="text-center px-2.5 py-1 rounded-lg bg-red-50 dark:bg-red-900/10">
                               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Crit</p>
-                              <p className="text-sm font-bold text-critical">{repo.critical}</p>
+                              <p className="text-sm font-bold text-red-600 dark:text-red-400">{repo.critical}</p>
                             </div>
-                            <div className="text-center px-2">
+                            <div className="text-center px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-900/10">
                               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Med</p>
-                              <p className="text-sm font-bold text-warning">{repo.medium}</p>
+                              <p className="text-sm font-bold text-amber-600 dark:text-amber-400">{repo.medium}</p>
                             </div>
-                            <div className="text-center px-2">
+                            <div className="text-center px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-900/10">
                               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Low</p>
-                              <p className="text-sm font-bold text-success">{repo.low}</p>
+                              <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{repo.low}</p>
                             </div>
                           </div>
 
@@ -224,36 +223,36 @@ const Repositories = () => {
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-8 w-8 p-0 text-primary hover:text-primary"
+                              className="h-9 w-9 p-0 text-primary hover:text-primary hover:bg-primary/10 rounded-xl"
                               onClick={() => handleScan(repo.name)}
                               disabled={scanning === repo.name}
                               title="Re-scan repository"
                             >
                               {scanning === repo.name ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                <Loader2 className="h-4 w-4 animate-spin" />
                               ) : (
-                                <RefreshCw className="h-3.5 w-3.5" />
+                                <RefreshCw className="h-4 w-4" />
                               )}
                             </Button>
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-8 w-8 p-0"
+                              className="h-9 w-9 p-0 hover:bg-secondary rounded-xl"
                               onClick={() => window.open(`https://github.com/${repo.name}`, "_blank")}
                             >
-                              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                              <ExternalLink className="h-4 w-4 text-muted-foreground" />
                             </Button>
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                              className="h-9 w-9 p-0 text-destructive hover:text-destructive hover:bg-destructive/10 rounded-xl"
                               onClick={() => handleDisconnect(repo.name)}
                               disabled={disconnecting === repo.name}
                             >
                               {disconnecting === repo.name ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                <Loader2 className="h-4 w-4 animate-spin" />
                               ) : (
-                                <Trash2 className="h-3.5 w-3.5" />
+                                <Trash2 className="h-4 w-4" />
                               )}
                             </Button>
                           </div>
@@ -275,22 +274,22 @@ const Repositories = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
             onClick={(e) => e.target === e.currentTarget && closeModal()}
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-card border border-border rounded-xl shadow-lg w-full max-w-lg max-h-[90vh] overflow-y-auto"
+              className="bg-card border border-border rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
             >
               <div className="flex items-center justify-between p-5 border-b border-border">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-                    <GitFork className="h-4 w-4 text-primary" />
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                    <GitFork className="h-5 w-5 text-primary" />
                   </div>
                   <div>
-                    <h2 className="text-sm font-semibold text-foreground">
+                    <h2 className="text-sm font-bold text-foreground">
                       {webhookResult ? "Webhook Setup" : "Connect Repository"}
                     </h2>
                     <p className="text-xs text-muted-foreground">
@@ -300,7 +299,7 @@ const Repositories = () => {
                     </p>
                   </div>
                 </div>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={closeModal}>
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-xl" onClick={closeModal}>
                   <X className="h-4 w-4" />
                 </Button>
               </div>
@@ -310,10 +309,10 @@ const Repositories = () => {
                   /* Step 1: Enter repo name */
                   <form onSubmit={handleConnect} className="space-y-4">
                     <div>
-                      <Label className="text-xs text-muted-foreground">Repository (owner/repo)</Label>
+                      <Label className="text-xs font-medium text-muted-foreground">Repository (owner/repo)</Label>
                       <Input
                         placeholder="e.g. octocat/hello-world"
-                        className="mt-1.5 h-10 text-sm font-mono"
+                        className="mt-1.5 h-10 text-sm font-mono rounded-xl"
                         value={repoInput}
                         onChange={(e) => setRepoInput(e.target.value)}
                         required
@@ -324,14 +323,15 @@ const Repositories = () => {
                     </div>
 
                     {connectMutation.isError && (
-                      <div className="rounded-lg bg-critical/10 text-critical text-xs p-3">
+                      <div className="rounded-xl bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-xs p-3 flex items-center gap-2">
+                        <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
                         {(connectMutation.error as Error)?.message || "Failed to connect"}
                       </div>
                     )}
 
                     <Button
                       type="submit"
-                      className="w-full h-10 text-sm"
+                      className="w-full h-10 text-sm rounded-xl"
                       disabled={connectMutation.isPending || !repoInput.includes("/")}
                     >
                       {connectMutation.isPending ? (
@@ -345,7 +345,7 @@ const Repositories = () => {
                 ) : (
                   /* Step 2: Webhook instructions */
                   <div className="space-y-5">
-                    <div className="flex items-center gap-2 rounded-lg bg-success/10 text-success p-3">
+                    <div className="flex items-center gap-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 p-3">
                       <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
                       <p className="text-xs font-medium">
                         Repository connected! Now set up the webhook in GitHub.
@@ -354,21 +354,21 @@ const Repositories = () => {
 
                     {/* Webhook URL */}
                     <div>
-                      <Label className="text-xs text-muted-foreground">Webhook URL</Label>
+                      <Label className="text-xs font-medium text-muted-foreground">Webhook URL</Label>
                       <div className="flex items-center gap-2 mt-1.5">
                         <Input
                           readOnly
                           value={webhookResult.webhook.url}
-                          className="h-9 text-xs font-mono flex-1"
+                          className="h-9 text-xs font-mono flex-1 rounded-xl"
                         />
                         <Button
                           variant="outline"
                           size="sm"
-                          className="h-9 px-3"
+                          className="h-9 px-3 rounded-xl"
                           onClick={() => handleCopy(webhookResult.webhook.url, "url")}
                         >
                           {copiedField === "url" ? (
-                            <Check className="h-3.5 w-3.5 text-success" />
+                            <Check className="h-3.5 w-3.5 text-emerald-600" />
                           ) : (
                             <Copy className="h-3.5 w-3.5" />
                           )}
@@ -378,21 +378,21 @@ const Repositories = () => {
 
                     {/* Webhook Secret */}
                     <div>
-                      <Label className="text-xs text-muted-foreground">Webhook Secret</Label>
+                      <Label className="text-xs font-medium text-muted-foreground">Webhook Secret</Label>
                       <div className="flex items-center gap-2 mt-1.5">
                         <Input
                           readOnly
                           value={webhookResult.webhook.secret}
-                          className="h-9 text-xs font-mono flex-1"
+                          className="h-9 text-xs font-mono flex-1 rounded-xl"
                         />
                         <Button
                           variant="outline"
                           size="sm"
-                          className="h-9 px-3"
+                          className="h-9 px-3 rounded-xl"
                           onClick={() => handleCopy(webhookResult.webhook.secret, "secret")}
                         >
                           {copiedField === "secret" ? (
-                            <Check className="h-3.5 w-3.5 text-success" />
+                            <Check className="h-3.5 w-3.5 text-emerald-600" />
                           ) : (
                             <Copy className="h-3.5 w-3.5" />
                           )}
@@ -401,15 +401,15 @@ const Repositories = () => {
                     </div>
 
                     {/* Step-by-step instructions */}
-                    <div className="rounded-lg border border-border bg-secondary/30 p-4">
+                    <div className="rounded-xl border border-border bg-secondary/30 p-4">
                       <div className="flex items-center gap-2 mb-3">
                         <Webhook className="h-4 w-4 text-primary" />
-                        <p className="text-xs font-semibold text-foreground">Setup Instructions</p>
+                        <p className="text-xs font-bold text-foreground">Setup Instructions</p>
                       </div>
-                      <ol className="space-y-2">
+                      <ol className="space-y-2.5">
                         {webhookResult.webhook.instructions.map((step, idx) => (
-                          <li key={idx} className="text-xs text-muted-foreground flex items-start gap-2">
-                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary text-[10px] font-bold flex-shrink-0 mt-0.5">
+                          <li key={idx} className="text-xs text-muted-foreground flex items-start gap-2.5">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex-shrink-0 mt-0.5">
                               {idx + 1}
                             </span>
                             <span>{step.replace(/^\d+\.\s*/, "")}</span>
@@ -418,7 +418,7 @@ const Repositories = () => {
                       </ol>
                     </div>
 
-                    <Button className="w-full h-10 text-sm" onClick={closeModal}>
+                    <Button className="w-full h-10 text-sm rounded-xl" onClick={closeModal}>
                       <Check className="h-4 w-4 mr-2" />
                       Done
                     </Button>
