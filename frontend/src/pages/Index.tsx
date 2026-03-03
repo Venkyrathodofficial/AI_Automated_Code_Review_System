@@ -20,10 +20,10 @@ const Index = () => {
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0">
           <TopNav title="Dashboard" subtitle="Overview of your code review pipeline" />
-          <main className="flex-1 overflow-auto p-6 space-y-6 bg-background">
+          <main className="flex-1 overflow-auto p-3 sm:p-6 space-y-4 sm:space-y-6 bg-background">
             <StatsGrid />
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
               <RiskChart />
               <TrendChart />
             </div>
@@ -33,7 +33,7 @@ const Index = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.55 }}
-              className="rounded-xl border border-border bg-card p-6 shadow-sm"
+              className="rounded-xl border border-border bg-card p-4 sm:p-6 shadow-sm"
             >
               <h3 className="text-sm font-semibold text-card-foreground">Recent Activity</h3>
               <p className="mt-1 text-xs text-muted-foreground mb-4">Latest events in your pipeline</p>

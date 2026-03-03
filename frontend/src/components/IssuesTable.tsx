@@ -59,15 +59,16 @@ export function IssuesTable() {
           <p className="mt-1 text-xs text-muted-foreground">Latest code review findings across repositories</p>
         </div>
 
+        <div className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow className="border-border hover:bg-transparent">
               <TableHead className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Repository</TableHead>
-              <TableHead className="text-xs font-medium uppercase tracking-wider text-muted-foreground">File</TableHead>
+              <TableHead className="text-xs font-medium uppercase tracking-wider text-muted-foreground hidden md:table-cell">File</TableHead>
               <TableHead className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Issue</TableHead>
               <TableHead className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Severity</TableHead>
-              <TableHead className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Status</TableHead>
-              <TableHead className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Date</TableHead>
+              <TableHead className="text-xs font-medium uppercase tracking-wider text-muted-foreground hidden sm:table-cell">Status</TableHead>
+              <TableHead className="text-xs font-medium uppercase tracking-wider text-muted-foreground hidden lg:table-cell">Date</TableHead>
               <TableHead className="text-xs font-medium uppercase tracking-wider text-muted-foreground"></TableHead>
             </TableRow>
           </TableHeader>
@@ -75,21 +76,21 @@ export function IssuesTable() {
             {issues.map((issue) => (
               <TableRow key={issue.id} className="border-border hover:bg-secondary/50 transition-colors">
                 <TableCell className="font-mono text-xs text-card-foreground">{issue.repository}</TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground max-w-[160px] truncate">{issue.fileName}</TableCell>
-                <TableCell className="text-sm text-card-foreground max-w-[240px] truncate">{issue.title}</TableCell>
+                <TableCell className="font-mono text-xs text-muted-foreground max-w-[160px] truncate hidden md:table-cell">{issue.fileName}</TableCell>
+                <TableCell className="text-sm text-card-foreground max-w-[180px] sm:max-w-[240px] truncate">{issue.title}</TableCell>
                 <TableCell>
                   <Badge className={`text-[10px] font-semibold uppercase ${severityVariant[issue.severity]}`}>
                     {issue.severity}
                   </Badge>
                 </TableCell>
-                <TableCell>
+                <TableCell className="hidden sm:table-cell">
                   <button onClick={() => toggleStatus(issue.id)}>
                     <Badge className={`text-[10px] font-semibold capitalize cursor-pointer ${statusVariant[issue.status]}`}>
                       {issue.status}
                     </Badge>
                   </button>
                 </TableCell>
-                <TableCell className="text-xs text-muted-foreground">{issue.date}</TableCell>
+                <TableCell className="text-xs text-muted-foreground hidden lg:table-cell">{issue.date}</TableCell>
                 <TableCell>
                   <Button
                     variant="ghost"
@@ -105,6 +106,7 @@ export function IssuesTable() {
             ))}
           </TableBody>
         </Table>
+        </div>
       </motion.div>
 
       <IssueDetailModal issue={selectedIssue} onClose={() => setSelectedIssue(null)} />

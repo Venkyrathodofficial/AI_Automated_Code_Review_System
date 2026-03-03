@@ -65,9 +65,9 @@ const Issues = () => {
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0">
           <TopNav title="Issues" subtitle="All code review findings" />
-          <main className="flex-1 overflow-auto p-6 bg-background">
+          <main className="flex-1 overflow-auto p-3 sm:p-6 bg-background">
             {/* Summary */}
-            <div className="flex items-center gap-4 mb-6">
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
               <div className="flex items-center gap-2 text-sm">
                 <span className="h-2 w-2 rounded-full bg-critical" />
                 <span className="text-muted-foreground">{openCount} Open</span>
@@ -76,10 +76,10 @@ const Issues = () => {
                 <span className="h-2 w-2 rounded-full bg-success" />
                 <span className="text-muted-foreground">{resolvedCount} Resolved</span>
               </div>
-              <div className="ml-auto flex items-center gap-2">
-                <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <Filter className="h-3.5 w-3.5 text-muted-foreground hidden sm:block" />
                 <Select value={severityFilter} onValueChange={setSeverityFilter}>
-                  <SelectTrigger className="h-8 w-[130px] text-xs border-border">
+                  <SelectTrigger className="h-8 w-[110px] sm:w-[130px] text-xs border-border">
                     <SelectValue placeholder="Severity" />
                   </SelectTrigger>
                   <SelectContent>
@@ -90,7 +90,7 @@ const Issues = () => {
                   </SelectContent>
                 </Select>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="h-8 w-[120px] text-xs border-border">
+                  <SelectTrigger className="h-8 w-[100px] sm:w-[120px] text-xs border-border">
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
                   <SelectContent>
@@ -109,15 +109,16 @@ const Issues = () => {
               transition={{ duration: 0.35 }}
               className="rounded-xl border border-border bg-card shadow-sm"
             >
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow className="border-border hover:bg-transparent">
                     <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Repository</TableHead>
-                    <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">File</TableHead>
+                    <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hidden md:table-cell">File</TableHead>
                     <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Issue</TableHead>
                     <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Severity</TableHead>
-                    <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</TableHead>
-                    <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date</TableHead>
+                    <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hidden sm:table-cell">Status</TableHead>
+                    <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hidden lg:table-cell">Date</TableHead>
                     <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -125,21 +126,21 @@ const Issues = () => {
                   {filteredIssues.map((issue) => (
                     <TableRow key={issue.id} className="border-border hover:bg-secondary/40 transition-colors">
                       <TableCell className="font-mono text-xs text-card-foreground">{issue.repository}</TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground max-w-[160px] truncate">{issue.fileName}</TableCell>
-                      <TableCell className="text-sm text-card-foreground max-w-[260px] truncate">{issue.title}</TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground max-w-[160px] truncate hidden md:table-cell">{issue.fileName}</TableCell>
+                      <TableCell className="text-sm text-card-foreground max-w-[180px] sm:max-w-[260px] truncate">{issue.title}</TableCell>
                       <TableCell>
                         <Badge className={`text-[10px] font-semibold uppercase ${severityVariant[issue.severity]}`}>
                           {issue.severity}
                         </Badge>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden sm:table-cell">
                         <button onClick={() => toggleStatus(issue.id)}>
                           <Badge className={`text-[10px] font-semibold capitalize cursor-pointer ${statusVariant[issue.status]}`}>
                             {issue.status}
                           </Badge>
                         </button>
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{issue.date}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground hidden lg:table-cell">{issue.date}</TableCell>
                       <TableCell>
                         <Button
                           variant="ghost"
@@ -148,7 +149,7 @@ const Issues = () => {
                           onClick={() => setSelectedIssue(issue)}
                         >
                           <Eye className="h-3 w-3" />
-                          View
+                          <span className="hidden sm:inline">View</span>
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -162,6 +163,7 @@ const Issues = () => {
                   )}
                 </TableBody>
               </Table>
+              </div>
             </motion.div>
           </main>
         </div>

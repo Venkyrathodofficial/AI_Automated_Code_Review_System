@@ -39,8 +39,8 @@ export function RiskChart() {
       <h3 className="text-sm font-semibold text-card-foreground">Risk Overview</h3>
       <p className="mt-1 text-xs text-muted-foreground">Severity distribution across all issues</p>
 
-      <div className="mt-6 flex items-center gap-8">
-        <div className="h-44 w-44 shrink-0">
+      <div className="mt-6 flex flex-col sm:flex-row items-center gap-6 sm:gap-8">
+        <div className="h-36 w-36 sm:h-44 sm:w-44 shrink-0">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie

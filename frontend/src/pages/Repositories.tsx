@@ -90,15 +90,15 @@ const Repositories = () => {
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0">
           <TopNav title="Repositories" subtitle="Manage your connected repositories" />
-          <main className="flex-1 overflow-auto p-6 bg-background">
+          <main className="flex-1 overflow-auto p-3 sm:p-6 bg-background">
             {/* Header */}
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
               <div>
                 <p className="text-sm text-muted-foreground">
                   {isLoading ? "Loading..." : `${repositories.length} repositor${repositories.length === 1 ? "y" : "ies"} connected`}
                 </p>
               </div>
-              <Button size="sm" className="h-8 text-xs" onClick={() => setShowConnectModal(true)}>
+              <Button size="sm" className="h-8 text-xs w-full sm:w-auto" onClick={() => setShowConnectModal(true)}>
                 <Plus className="h-3.5 w-3.5 mr-1.5" />
                 Connect Repository
               </Button>
@@ -144,9 +144,9 @@ const Repositories = () => {
                       initial={{ opacity: 0, y: 12 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.3, delay: i * 0.06 }}
-                      className="rounded-xl border border-border bg-card p-5 shadow-sm hover:shadow-md transition-all"
+                      className="rounded-xl border border-border bg-card p-4 sm:p-5 shadow-sm hover:shadow-md transition-all"
                     >
-                      <div className="flex items-start justify-between">
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-3">
                             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
@@ -163,7 +163,7 @@ const Repositories = () => {
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-5 mt-4 text-xs text-muted-foreground">
+                          <div className="flex flex-wrap items-center gap-3 sm:gap-5 mt-4 text-xs text-muted-foreground">
                             <span className="flex items-center gap-1">
                               <FileCode2 className="h-3 w-3" />
                               {repo.filesReviewed} file{repo.filesReviewed !== 1 ? "s" : ""} reviewed
@@ -179,7 +179,7 @@ const Repositories = () => {
                           </div>
                         </div>
 
-                        <div className="flex items-start gap-6 ml-6">
+                        <div className="flex flex-wrap items-start gap-4 sm:gap-6 sm:ml-6">
                           {/* Health Score */}
                           <div className="text-center min-w-[80px]">
                             <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Health</p>
@@ -251,7 +251,7 @@ const Repositories = () => {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-card border border-border rounded-xl shadow-lg w-full max-w-lg max-h-[85vh] overflow-y-auto"
+              className="bg-card border border-border rounded-xl shadow-lg w-full max-w-lg max-h-[90vh] overflow-y-auto"
             >
               <div className="flex items-center justify-between p-5 border-b border-border">
                 <div className="flex items-center gap-3">

@@ -62,42 +62,45 @@ const SettingsPage = () => {
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0">
           <TopNav title="Settings" subtitle="Manage your account and preferences" />
-          <main className="flex-1 overflow-auto p-6 bg-background">
+          <main className="flex-1 overflow-auto p-3 sm:p-6 bg-background">
             <Tabs defaultValue="profile" className="max-w-3xl">
-              <TabsList className="bg-secondary h-9 p-1 mb-6">
+              <TabsList className="bg-secondary h-9 p-1 mb-6 w-full overflow-x-auto flex justify-start sm:w-auto sm:inline-flex">
                 <TabsTrigger value="profile" className="text-xs h-7 data-[state=active]:bg-card data-[state=active]:shadow-sm">
                   <User className="h-3.5 w-3.5 mr-1.5" />
-                  Profile
+                  <span className="hidden sm:inline">Profile</span>
+                  <span className="sm:hidden">Profile</span>
                 </TabsTrigger>
                 <TabsTrigger value="notifications" className="text-xs h-7 data-[state=active]:bg-card data-[state=active]:shadow-sm">
                   <Bell className="h-3.5 w-3.5 mr-1.5" />
-                  Notifications
+                  <span className="hidden sm:inline">Notifications</span>
+                  <span className="sm:hidden">Notifs</span>
                 </TabsTrigger>
                 <TabsTrigger value="integrations" className="text-xs h-7 data-[state=active]:bg-card data-[state=active]:shadow-sm">
                   <GitFork className="h-3.5 w-3.5 mr-1.5" />
-                  Integrations
+                  <span className="hidden sm:inline">Integrations</span>
+                  <span className="sm:hidden">Integ</span>
                 </TabsTrigger>
                 <TabsTrigger value="security" className="text-xs h-7 data-[state=active]:bg-card data-[state=active]:shadow-sm">
                   <Shield className="h-3.5 w-3.5 mr-1.5" />
-                  Security
+                  <span>Security</span>
                 </TabsTrigger>
               </TabsList>
 
               {/* Profile Tab */}
               <TabsContent value="profile">
                 <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-                  <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+                  <div className="rounded-xl border border-border bg-card p-4 sm:p-6 shadow-sm">
                     <h3 className="text-sm font-semibold text-card-foreground mb-4">Personal Information</h3>
-                    <div className="flex items-center gap-5 mb-6">
-                      <Avatar className="h-16 w-16">
-                        <AvatarFallback className="bg-primary text-primary-foreground text-lg font-semibold">{initials}</AvatarFallback>
+                    <div className="flex items-center gap-4 sm:gap-5 mb-6">
+                      <Avatar className="h-14 w-14 sm:h-16 sm:w-16">
+                        <AvatarFallback className="bg-primary text-primary-foreground text-base sm:text-lg font-semibold">{initials}</AvatarFallback>
                       </Avatar>
-                      <div>
-                        <p className="text-sm font-medium text-card-foreground">{firstName} {lastName}</p>
-                        <p className="text-xs text-muted-foreground">{user?.email}</p>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-card-foreground truncate">{firstName} {lastName}</p>
+                        <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <Label className="text-xs text-muted-foreground">First Name</Label>
                         <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} className="mt-1.5 h-9 text-sm" />
@@ -106,11 +109,11 @@ const SettingsPage = () => {
                         <Label className="text-xs text-muted-foreground">Last Name</Label>
                         <Input value={lastName} onChange={(e) => setLastName(e.target.value)} className="mt-1.5 h-9 text-sm" />
                       </div>
-                      <div className="col-span-2">
+                      <div className="col-span-1 sm:col-span-2">
                         <Label className="text-xs text-muted-foreground">Email</Label>
                         <Input value={user?.email || ""} readOnly className="mt-1.5 h-9 text-sm bg-secondary" />
                       </div>
-                      <div className="col-span-2">
+                      <div className="col-span-1 sm:col-span-2">
                         <Label className="text-xs text-muted-foreground">Organization</Label>
                         <Input value={organization} onChange={(e) => setOrganization(e.target.value)} className="mt-1.5 h-9 text-sm" />
                       </div>
@@ -178,7 +181,7 @@ const SettingsPage = () => {
                     { name: "GitLab", desc: "Connect your GitLab repositories", icon: Globe, connected: false },
                     { name: "Slack", desc: "Send notifications to Slack channels", icon: Smartphone, connected: false },
                   ].map((integration) => (
-                    <div key={integration.name} className="rounded-xl border border-border bg-card p-5 shadow-sm flex items-center justify-between">
+                    <div className="rounded-xl border border-border bg-card p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div className="flex items-center gap-4">
                         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                           <integration.icon className="h-5 w-5 text-primary" />
@@ -188,11 +191,11 @@ const SettingsPage = () => {
                           <p className="text-xs text-muted-foreground">{integration.desc}</p>
                         </div>
                       </div>
-                      <Button
-                        variant={integration.connected ? "outline" : "default"}
-                        size="sm"
-                        className="text-xs h-8"
-                      >
+                        <Button
+                          variant={integration.connected ? "outline" : "default"}
+                          size="sm"
+                          className="text-xs h-8 w-full sm:w-auto"
+                        >
                         {integration.connected ? "Connected" : "Connect"}
                       </Button>
                     </div>
@@ -221,9 +224,9 @@ const SettingsPage = () => {
                       <Separator />
                       <div>
                         <Label className="text-xs text-muted-foreground">API Key</Label>
-                        <div className="flex gap-2 mt-1.5">
+                        <div className="flex flex-col sm:flex-row gap-2 mt-1.5">
                           <Input value="sk-••••••••••••••••••••" readOnly className="h-9 text-sm font-mono" />
-                          <Button variant="outline" size="sm" className="h-9 text-xs shrink-0">
+                          <Button variant="outline" size="sm" className="h-9 text-xs shrink-0 w-full sm:w-auto">
                             <Key className="h-3.5 w-3.5 mr-1" />
                             Regenerate
                           </Button>
