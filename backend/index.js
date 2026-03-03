@@ -771,18 +771,27 @@ app.patch("/api/reviews/:id", authMiddleware, async (req, res) => {
 app.post("/webhook/github/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
-    console.log(`✅ Webhook received for user ${userId}`);
+    const event = req.headers["x-github-event"] || "unknown";
+    console.log(`✅ Webhook received for user ${userId} — event: ${event}`);
+
+    // Handle ping event (sent when webhook is first created)
+    if (event === "ping") {
+      console.log(`   🏓 Ping from GitHub — zen: "${req.body.zen || ""}"`);
+      return res.status(200).json({ message: "pong", zen: req.body.zen });
+    }
 
     const repository = req.body.repository?.full_name || "Unknown Repo";
     const head = req.body.head_commit || {};
 
-    // Verify this repo is connected to this user
-    const { data: userRepo } = await supabase
+    // Verify this repo is connected to this user (case-insensitive match)
+    const { data: userRepos } = await supabase
       .from("user_repositories")
       .select("*")
-      .eq("user_id", userId)
-      .eq("repo_full_name", repository)
-      .single();
+      .eq("user_id", userId);
+
+    const userRepo = (userRepos || []).find(
+      (r) => r.repo_full_name.toLowerCase() === repository.toLowerCase()
+    );
 
     if (!userRepo) {
       console.log(`⚠️ Repo ${repository} not connected for user ${userId}`);
