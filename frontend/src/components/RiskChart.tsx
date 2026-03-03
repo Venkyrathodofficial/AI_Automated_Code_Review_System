@@ -1,14 +1,8 @@
+import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
-import { useStats } from "@/hooks/useReviews";
+import { useStats, useReviews } from "@/hooks/useReviews";
 import { Loader2 } from "lucide-react";
-
-const trendData = [
-  { week: "W1", critical: 4, medium: 8, low: 12 },
-  { week: "W2", critical: 3, medium: 10, low: 15 },
-  { week: "W3", critical: 2, medium: 6, low: 18 },
-  { week: "W4", critical: 3, medium: 10, low: 22 },
-];
 
 export function RiskChart() {
   const { data: stats, isLoading } = useStats();
@@ -89,7 +83,79 @@ export function RiskChart() {
   );
 }
 
+type TimeRange = "daily" | "weekly" | "monthly";
+
+function getDateKey(dateStr: string, range: TimeRange): string {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return "Unknown";
+
+  if (range === "daily") {
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+  if (range === "weekly") {
+    // ISO week: get Monday of that week
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(d);
+    monday.setDate(diff);
+    return `W${monday.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+  }
+  // monthly
+  return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+}
+
+function getSortKey(dateStr: string, range: TimeRange): number {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return 0;
+
+  if (range === "daily") return d.getTime();
+  if (range === "weekly") {
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(d);
+    monday.setDate(diff);
+    return monday.getTime();
+  }
+  return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+}
+
+function getMaxBuckets(range: TimeRange): number {
+  if (range === "daily") return 14;
+  if (range === "weekly") return 8;
+  return 6;
+}
+
 export function TrendChart() {
+  const [range, setRange] = useState<TimeRange>("daily");
+  const { data: issues, isLoading } = useReviews();
+
+  const trendData = useMemo(() => {
+    if (!issues || issues.length === 0) return [];
+
+    const buckets = new Map<string, { label: string; sortKey: number; critical: number; medium: number; low: number }>();
+
+    for (const issue of issues) {
+      if (!issue.date) continue;
+      const label = getDateKey(issue.date, range);
+      const sortKey = getSortKey(issue.date, range);
+
+      if (!buckets.has(label)) {
+        buckets.set(label, { label, sortKey, critical: 0, medium: 0, low: 0 });
+      }
+      const bucket = buckets.get(label)!;
+      const sev = issue.severity?.toLowerCase();
+      if (sev === "critical") bucket.critical++;
+      else if (sev === "medium") bucket.medium++;
+      else bucket.low++;
+    }
+
+    const sorted = Array.from(buckets.values()).sort((a, b) => a.sortKey - b.sortKey);
+    const maxBuckets = getMaxBuckets(range);
+    return sorted.slice(-maxBuckets);
+  }, [issues, range]);
+
+  const rangeLabel = range === "daily" ? "Daily" : range === "weekly" ? "Weekly" : "Monthly";
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -97,29 +163,69 @@ export function TrendChart() {
       transition={{ duration: 0.4, delay: 0.5 }}
       className="rounded-xl border border-border bg-card p-6 shadow-sm lg:col-span-2"
     >
-      <h3 className="text-sm font-semibold text-card-foreground">Issue Trends</h3>
-      <p className="mt-1 text-xs text-muted-foreground">Weekly issue count by severity</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-card-foreground">Issue Trends</h3>
+          <p className="mt-1 text-xs text-muted-foreground">{rangeLabel} issue count by severity</p>
+        </div>
+
+        {/* Toggle buttons */}
+        <div className="flex items-center rounded-lg border border-border bg-muted/40 p-0.5">
+          {(["daily", "weekly", "monthly"] as TimeRange[]).map((r) => (
+            <button
+              key={r}
+              onClick={() => setRange(r)}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-all duration-200 ${
+                range === r
+                  ? "bg-white text-card-foreground shadow-sm dark:bg-card"
+                  : "text-muted-foreground hover:text-card-foreground"
+              }`}
+            >
+              {r === "daily" ? "Daily" : r === "weekly" ? "Weekly" : "Monthly"}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="mt-6 h-44">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={trendData} barGap={2}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 15%, 91%)" vertical={false} />
-            <XAxis dataKey="week" tick={{ fontSize: 11, fill: "hsl(220, 10%, 46%)" }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: "hsl(220, 10%, 46%)" }} axisLine={false} tickLine={false} width={28} />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: "hsl(0, 0%, 100%)",
-                border: "1px solid hsl(220, 15%, 91%)",
-                borderRadius: "8px",
-                fontSize: "12px",
-                boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
-              }}
-            />
-            <Bar dataKey="critical" fill="hsl(0, 72%, 51%)" radius={[3, 3, 0, 0]} />
-            <Bar dataKey="medium" fill="hsl(38, 92%, 50%)" radius={[3, 3, 0, 0]} />
-            <Bar dataKey="low" fill="hsl(152, 60%, 42%)" radius={[3, 3, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+        {isLoading ? (
+          <div className="flex items-center justify-center h-full">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : trendData.length === 0 ? (
+          <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+            No issue data yet — connect a repo and run a scan
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={trendData} barGap={2}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 15%, 91%)" vertical={false} />
+              <XAxis
+                dataKey="label"
+                tick={{ fontSize: 10, fill: "hsl(220, 10%, 46%)" }}
+                axisLine={false}
+                tickLine={false}
+                interval={0}
+                angle={range === "daily" ? -35 : 0}
+                textAnchor={range === "daily" ? "end" : "middle"}
+                height={range === "daily" ? 40 : 28}
+              />
+              <YAxis tick={{ fontSize: 11, fill: "hsl(220, 10%, 46%)" }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "hsl(0, 0%, 100%)",
+                  border: "1px solid hsl(220, 15%, 91%)",
+                  borderRadius: "8px",
+                  fontSize: "12px",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+                }}
+              />
+              <Bar dataKey="critical" name="Critical" fill="hsl(0, 72%, 51%)" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="medium" name="Medium" fill="hsl(38, 92%, 50%)" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="low" name="Low" fill="hsl(152, 60%, 42%)" radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </motion.div>
   );
