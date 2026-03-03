@@ -11,6 +11,7 @@ frontend/.env
 # Build outputs
 frontend/dist/
 frontend/build/
+frontend/.vite/
 
 # OS files
 .DS_Store
