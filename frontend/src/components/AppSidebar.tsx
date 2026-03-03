@@ -45,11 +45,12 @@ export function AppSidebar() {
             <ShieldCheck className="h-5 w-5 text-primary-foreground" />
           </div>
           {!collapsed && (
-            <div>
-              <span className="text-[13px] font-extrabold tracking-tight text-foreground leading-tight">
-                CodeAurora
-              </span>
-              <span className="text-[10px] font-semibold tracking-wide text-primary block -mt-0.5">Sentinel AI</span>
+            <div className="flex items-center gap-1">
+              <div className="flex flex-col leading-[1.1]">
+                <span className="text-[11px] font-bold tracking-tight text-foreground">CodeAurora</span>
+                <span className="text-[11px] font-bold tracking-tight text-foreground">Sentinel</span>
+              </div>
+              <span className="text-[26px] font-black tracking-tighter text-primary leading-none -ml-0.5">AI</span>
             </div>
           )}
         </div>
