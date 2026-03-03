@@ -28,7 +28,7 @@ interface TourStep {
 const tourSteps: TourStep[] = [
   {
     icon: <Sparkles className="h-8 w-8 text-primary" />,
-    title: "Welcome to CodeLens AI!",
+    title: "Welcome to CodeAurora Sentinel AI!",
     description:
       "Your intelligent code review assistant. We analyze every commit you push to GitHub, find security issues, bugs, and performance problems — all automatically.",
     highlight: "Let's get you set up in 3 simple steps.",

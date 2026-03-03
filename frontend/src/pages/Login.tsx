@@ -57,8 +57,9 @@ const Login = () => {
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/80 shadow-lg shadow-primary/20 mb-4">
             <ShieldCheck className="h-7 w-7 text-primary-foreground" />
           </div>
-          <h1 className="text-xl font-extrabold text-foreground tracking-tight">CodeLens AI</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <h1 className="text-xl font-extrabold text-foreground tracking-tight">CodeAurora Sentinel AI</h1>
+          <p className="text-xs font-medium text-primary mt-1 tracking-wide">Secure Every Commit</p>
+          <p className="text-sm text-muted-foreground mt-2">
             {isSignUp ? "Create your account" : "Sign in to your account"}
           </p>
         </div>

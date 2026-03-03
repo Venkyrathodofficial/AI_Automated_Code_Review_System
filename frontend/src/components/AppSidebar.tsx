@@ -46,10 +46,10 @@ export function AppSidebar() {
           </div>
           {!collapsed && (
             <div>
-              <span className="text-[15px] font-extrabold tracking-tight text-foreground">
-                CodeLens
+              <span className="text-[13px] font-extrabold tracking-tight text-foreground leading-tight">
+                CodeAurora
               </span>
-              <span className="text-[15px] font-extrabold tracking-tight text-primary ml-0.5">AI</span>
+              <span className="text-[10px] font-semibold tracking-wide text-primary block -mt-0.5">Sentinel AI</span>
             </div>
           )}
         </div>
