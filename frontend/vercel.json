@@ -1,0 +1,11 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "installCommand": "npm install",
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://YOUR_RENDER_BACKEND_URL.onrender.com/api/:path*" },
+    { "source": "/webhook/:path*", "destination": "https://YOUR_RENDER_BACKEND_URL.onrender.com/webhook/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
