@@ -1,15 +1,16 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { Navigate } from "react-router-dom";
+import { Navigate, useSearchParams, Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ShieldCheck, Mail, Lock, Loader2, Eye, EyeOff } from "lucide-react";
+import { ShieldCheck, Mail, Lock, Loader2, Eye, EyeOff, ArrowLeft } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 
 const Login = () => {
   const { user, signIn, signUp } = useAuth();
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [searchParams] = useSearchParams();
+  const [isSignUp, setIsSignUp] = useState(searchParams.get("signup") === "true");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -18,7 +19,7 @@ const Login = () => {
   const [success, setSuccess] = useState<string | null>(null);
 
   // Already logged in → redirect
-  if (user) return <Navigate to="/" replace />;
+  if (user) return <Navigate to="/dashboard" replace />;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,6 +63,13 @@ const Login = () => {
           <p className="text-sm text-muted-foreground mt-2">
             {isSignUp ? "Create your account" : "Sign in to your account"}
           </p>
+        </div>
+
+        {/* Back to home link */}
+        <div className="mb-4 text-center">
+          <Link to="/" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
+            <ArrowLeft className="h-3 w-3" /> Back to Home
+          </Link>
         </div>
 
         {/* Card */}

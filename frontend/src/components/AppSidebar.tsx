@@ -16,7 +16,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 
 const mainMenu = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Repositories", url: "/repositories", icon: GitFork },
   { title: "Issues", url: "/issues", icon: AlertTriangle },
 ];
@@ -33,7 +33,7 @@ export function AppSidebar() {
 
   const handleLogout = async () => {
     await signOut();
-    navigate("/login");
+    navigate("/");
   };
 
   return (
