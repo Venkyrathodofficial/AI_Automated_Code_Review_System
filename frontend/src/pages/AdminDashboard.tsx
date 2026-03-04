@@ -2,14 +2,12 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   Users,
-  Activity,
   GitFork,
   FileSearch,
   AlertTriangle,
   AlertCircle,
   Info,
   Shield,
-  Settings,
   Bell,
   BellOff,
   Power,
@@ -17,89 +15,251 @@ import {
   Loader2,
   UserPlus,
   LogIn,
-  Calendar,
   Clock,
-  ChevronDown,
   Mail,
   CheckCircle2,
   XCircle,
   ArrowLeft,
   Megaphone,
   Construction,
+  LayoutDashboard,
+  Settings,
+  TrendingUp,
+  BarChart3,
+  Search,
+  ChevronRight,
+  Eye,
+  Activity,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { useAdminDashboard, useUpdateAdminSettings } from "@/hooks/useAdmin";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow, format } from "date-fns";
 
-/* ── tiny helpers ── */
-
-const fadeUp = {
-  hidden: { opacity: 0, y: 16 },
+/* ── Animation variants ── */
+const fadeIn = {
+  hidden: { opacity: 0, y: 10 },
   visible: (i: number) => ({
     opacity: 1,
     y: 0,
-    transition: { delay: i * 0.06, duration: 0.35 },
+    transition: { delay: i * 0.05, duration: 0.3 },
   }),
 };
 
+/* ── Sidebar Navigation Item ── */
+function NavItem({ 
+  icon: Icon, 
+  label, 
+  active = false,
+  badge,
+}: { 
+  icon: React.ElementType; 
+  label: string; 
+  active?: boolean;
+  badge?: number;
+}) {
+  return (
+    <button
+      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+        active 
+          ? "bg-primary text-white shadow-md shadow-primary/20" 
+          : "text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+      }`}
+    >
+      <Icon className="h-5 w-5" />
+      <span className="flex-1 text-left">{label}</span>
+      {badge !== undefined && badge > 0 && (
+        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+          active ? "bg-white/20 text-white" : "bg-primary/10 text-primary"
+        }`}>
+          {badge}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/* ── Stat Card Component ── */
 function StatCard({
   title,
   value,
   icon: Icon,
-  color,
-  subtitle,
+  trend,
+  trendValue,
+  color = "primary",
   delay = 0,
 }: {
   title: string;
   value: number | string;
   icon: React.ElementType;
-  color: string;
-  subtitle?: string;
+  trend?: "up" | "down";
+  trendValue?: string;
+  color?: "primary" | "blue" | "red" | "amber" | "emerald" | "violet";
   delay?: number;
 }) {
+  const colors = {
+    primary: "bg-primary/10 text-primary border-primary/20",
+    blue: "bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800",
+    red: "bg-red-50 text-red-600 border-red-100 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800",
+    amber: "bg-amber-50 text-amber-600 border-amber-100 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800",
+    emerald: "bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800",
+    violet: "bg-violet-50 text-violet-600 border-violet-100 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800",
+  };
+
   return (
     <motion.div
       initial="hidden"
       animate="visible"
-      variants={fadeUp}
+      variants={fadeIn}
       custom={delay}
-      className="rounded-2xl border border-border bg-card p-5 shadow-sm hover:shadow-md transition-all"
+      className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm hover:shadow-md transition-shadow"
     >
       <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs font-medium text-muted-foreground">{title}</p>
-          <p className="mt-2 text-2xl font-extrabold text-card-foreground">
+        <div className="space-y-1">
+          <p className="text-sm text-gray-500 dark:text-gray-400">{title}</p>
+          <p className="text-3xl font-bold text-gray-900 dark:text-white">
             {typeof value === "number" ? value.toLocaleString() : value}
           </p>
-          {subtitle && (
-            <p className="mt-1 text-[11px] text-muted-foreground">{subtitle}</p>
+          {trendValue && (
+            <p className={`text-xs font-medium flex items-center gap-1 ${
+              trend === "up" ? "text-emerald-600" : "text-red-500"
+            }`}>
+              <TrendingUp className={`h-3 w-3 ${trend === "down" ? "rotate-180" : ""}`} />
+              {trendValue}
+            </p>
           )}
         </div>
-        <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${color}`}>
-          <Icon className="h-5 w-5" />
+        <div className={`p-3 rounded-xl border ${colors[color]}`}>
+          <Icon className="h-6 w-6" />
         </div>
       </div>
     </motion.div>
   );
 }
 
-/* ── Main Component ── */
+/* ── Mini Stat for Signups/Logins ── */
+function MiniStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="text-center">
+      <p className="text-2xl font-bold text-gray-900 dark:text-white">{value.toLocaleString()}</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{label}</p>
+    </div>
+  );
+}
 
+/* ── Progress Ring for Donut Chart ── */
+function DonutChart({ 
+  data 
+}: { 
+  data: { label: string; value: number; color: string }[] 
+}) {
+  const total = data.reduce((sum, item) => sum + item.value, 0);
+  let currentAngle = -90;
+
+  return (
+    <div className="flex items-center gap-6">
+      <div className="relative w-32 h-32">
+        <svg className="w-full h-full" viewBox="0 0 100 100">
+          {total === 0 ? (
+            <circle
+              cx="50"
+              cy="50"
+              r="40"
+              fill="none"
+              stroke="#E5E7EB"
+              strokeWidth="12"
+            />
+          ) : (
+            data.map((item, idx) => {
+              const percentage = (item.value / total) * 100;
+              const strokeDasharray = `${percentage * 2.51327} ${251.327 - percentage * 2.51327}`;
+              const rotation = currentAngle;
+              currentAngle += (percentage / 100) * 360;
+              
+              return (
+                <circle
+                  key={idx}
+                  cx="50"
+                  cy="50"
+                  r="40"
+                  fill="none"
+                  stroke={item.color}
+                  strokeWidth="12"
+                  strokeDasharray={strokeDasharray}
+                  strokeLinecap="round"
+                  transform={`rotate(${rotation} 50 50)`}
+                  className="transition-all duration-500"
+                />
+              );
+            })
+          )}
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-2xl font-bold text-gray-900 dark:text-white">{total}</p>
+            <p className="text-xs text-gray-500">Total</p>
+          </div>
+        </div>
+      </div>
+      <div className="space-y-3">
+        {data.map((item, idx) => (
+          <div key={idx} className="flex items-center gap-3">
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
+            <div>
+              <p className="text-sm font-medium text-gray-900 dark:text-white">{item.label}</p>
+              <p className="text-xs text-gray-500">{item.value} issues · {total > 0 ? Math.round((item.value / total) * 100) : 0}%</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Bar Chart Component ── */
+function BarChart({ 
+  data,
+  height = 160,
+}: { 
+  data: { date: string; count: number }[];
+  height?: number;
+}) {
+  const max = Math.max(...data.map((d) => d.count), 1);
+
+  return (
+    <div className="flex items-end gap-2" style={{ height }}>
+      {data.map((day) => {
+        const pct = (day.count / max) * 100;
+        return (
+          <div key={day.date} className="flex-1 flex flex-col items-center gap-2">
+            <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">{day.count}</span>
+            <div className="w-full relative" style={{ height: height - 50 }}>
+              <div 
+                className="absolute bottom-0 left-0 right-0 rounded-t-lg transition-all duration-300 bg-primary"
+                style={{ height: `${Math.max(pct, 3)}%` }}
+              />
+            </div>
+            <span className="text-[10px] text-gray-500">{day.date.slice(5)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── Main Admin Dashboard Component ── */
 const AdminDashboard = () => {
   const { data, isLoading, error } = useAdminDashboard();
   const updateSettings = useUpdateAdminSettings();
 
-  /* local form state for settings */
   const [maintenanceMsg, setMaintenanceMsg] = useState("");
   const [noticeMsg, setNoticeMsg] = useState("");
   const [noticeType, setNoticeType] = useState<"info" | "warning" | "critical">("info");
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [activeTab, setActiveTab] = useState<"users" | "activity">("users");
 
-  // Sync settings to local state once loaded
   if (data?.settings && !settingsLoaded) {
     setMaintenanceMsg(data.settings.maintenance_message || "");
     setNoticeMsg(data.settings.notice_message || "");
@@ -109,27 +269,32 @@ const AdminDashboard = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+          <p className="mt-3 text-sm text-gray-500">Loading dashboard...</p>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <Shield className="h-12 w-12 text-red-400 mx-auto mb-4" />
-          <h2 className="text-lg font-bold text-foreground">Access Denied</h2>
-          <p className="text-sm text-muted-foreground mt-2">You do not have admin privileges.</p>
-          <div className="flex items-center gap-3 justify-center mt-4">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
+        <div className="text-center max-w-md mx-auto p-8">
+          <div className="w-16 h-16 bg-red-100 dark:bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Shield className="h-8 w-8 text-red-500" />
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Access Denied</h2>
+          <p className="text-gray-500 dark:text-gray-400 mb-6">You don't have permission to access the admin panel.</p>
+          <div className="flex items-center gap-3 justify-center">
             <Link to="/dashboard">
               <Button variant="outline" className="rounded-xl gap-2">
-                <ArrowLeft className="h-4 w-4" /> User Dashboard
+                <ArrowLeft className="h-4 w-4" /> Back to Dashboard
               </Button>
             </Link>
             <Link to="/admin/login">
-              <Button className="rounded-xl gap-2 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white">
+              <Button className="rounded-xl gap-2 bg-primary hover:bg-primary/90">
                 <Shield className="h-4 w-4" /> Admin Login
               </Button>
             </Link>
@@ -172,10 +337,6 @@ const AdminDashboard = () => {
     });
   };
 
-  const handleSaveMaintenanceMsg = () => {
-    updateSettings.mutate({ maintenance_message: maintenanceMsg });
-  };
-
   const handleToggleNotice = () => {
     updateSettings.mutate({
       notice_enabled: !isNoticeOn,
@@ -191,422 +352,526 @@ const AdminDashboard = () => {
     });
   };
 
-  const noticeColors = {
-    info: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300",
-    warning: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300",
-    critical: "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300",
-  };
+  const donutData = [
+    { label: "Critical", value: criticalIssues, color: "#EF4444" },
+    { label: "Medium", value: mediumIssues, color: "#F59E0B" },
+    { label: "Low", value: lowIssues, color: "#22C55E" },
+  ];
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-lg">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex">
+      {/* ── Sidebar ── */}
+      <aside className="w-64 bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 flex flex-col fixed h-full z-50">
+        {/* Logo */}
+        <div className="p-6 border-b border-gray-100 dark:border-gray-800">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-red-500 to-red-600 shadow-md">
+            <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
               <Shield className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h1 className="text-base font-extrabold tracking-tight">Admin Panel</h1>
-              <p className="text-[10px] text-muted-foreground">Master Dashboard</p>
+              <h1 className="font-bold text-gray-900 dark:text-white">Admin Panel</h1>
+              <p className="text-xs text-gray-500">CodeAurora Sentinel</p>
             </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <Link to="/dashboard">
-              <Button variant="outline" size="sm" className="rounded-xl gap-1.5 text-xs">
-                <ArrowLeft className="h-3.5 w-3.5" /> User Dashboard
-              </Button>
-            </Link>
           </div>
         </div>
-      </header>
 
-      <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 space-y-8">
-        {/* ── Overview Stats ── */}
-        <section>
-          <h2 className="text-sm font-bold text-foreground mb-4 flex items-center gap-2">
-            <Activity className="h-4 w-4 text-primary" /> Platform Overview
-          </h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-            <StatCard title="Total Users" value={totalUsers} icon={Users} color="bg-primary/10 text-primary" delay={0} />
-            <StatCard title="Total Reviews" value={totalReviews} icon={FileSearch} color="bg-blue-100 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400" delay={1} />
-            <StatCard title="Repositories" value={totalRepos} icon={GitFork} color="bg-violet-100 text-violet-600 dark:bg-violet-900/20 dark:text-violet-400" delay={2} />
-            <StatCard title="Critical" value={criticalIssues} icon={AlertTriangle} color="bg-red-100 text-red-600 dark:bg-red-900/20 dark:text-red-400" delay={3} />
-            <StatCard title="Open Issues" value={openIssues} icon={AlertCircle} color="bg-amber-100 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400" delay={4} />
-            <StatCard title="Resolved" value={resolvedIssues} icon={CheckCircle2} color="bg-emerald-100 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400" delay={5} />
-          </div>
-        </section>
+        {/* Navigation */}
+        <nav className="flex-1 p-4 space-y-1">
+          <NavItem icon={LayoutDashboard} label="Dashboard" active />
+          <NavItem icon={Users} label="Users" badge={totalUsers} />
+          <NavItem icon={GitFork} label="Repositories" badge={totalRepos} />
+          <NavItem icon={AlertTriangle} label="Issues" badge={openIssues} />
+          <NavItem icon={Activity} label="Activity" />
+          <NavItem icon={Settings} label="Settings" />
+        </nav>
 
-        {/* ── Signups & Logins ── */}
-        <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <motion.div
-            initial="hidden"
-            animate="visible"
-            variants={fadeUp}
-            custom={6}
-            className="rounded-2xl border border-border bg-card p-5 shadow-sm"
-          >
-            <div className="flex items-center gap-2 mb-4">
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-900/20">
-                <UserPlus className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-              </div>
-              <h3 className="text-sm font-bold text-card-foreground">Signups</h3>
+        {/* Back to User Dashboard */}
+        <div className="p-4 border-t border-gray-100 dark:border-gray-800">
+          <Link to="/dashboard">
+            <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800 transition-colors">
+              <ArrowLeft className="h-5 w-5" />
+              <span>User Dashboard</span>
+            </button>
+          </Link>
+        </div>
+      </aside>
+
+      {/* ── Main Content ── */}
+      <main className="flex-1 ml-64">
+        {/* Header */}
+        <header className="sticky top-0 z-40 bg-white/80 dark:bg-gray-900/80 backdrop-blur-lg border-b border-gray-100 dark:border-gray-800">
+          <div className="flex items-center justify-between px-8 py-4">
+            <div>
+              <h1 className="text-xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
+              <p className="text-sm text-gray-500">Welcome back, Admin</p>
             </div>
-            <div className="grid grid-cols-3 gap-4 text-center">
-              <div>
-                <p className="text-2xl font-extrabold text-card-foreground">{signupsToday}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">Today</p>
-              </div>
-              <div>
-                <p className="text-2xl font-extrabold text-card-foreground">{signups7d}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">Last 7 days</p>
-              </div>
-              <div>
-                <p className="text-2xl font-extrabold text-card-foreground">{signups30d}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">Last 30 days</p>
-              </div>
-            </div>
-          </motion.div>
-
-          <motion.div
-            initial="hidden"
-            animate="visible"
-            variants={fadeUp}
-            custom={7}
-            className="rounded-2xl border border-border bg-card p-5 shadow-sm"
-          >
-            <div className="flex items-center gap-2 mb-4">
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/20">
-                <LogIn className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-              </div>
-              <h3 className="text-sm font-bold text-card-foreground">Logins</h3>
-            </div>
-            <div className="grid grid-cols-3 gap-4 text-center">
-              <div>
-                <p className="text-2xl font-extrabold text-card-foreground">{loginsToday}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">Today</p>
-              </div>
-              <div>
-                <p className="text-2xl font-extrabold text-card-foreground">{logins7d}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">Last 7 days</p>
-              </div>
-              <div>
-                <p className="text-2xl font-extrabold text-card-foreground">{logins30d}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">Last 30 days</p>
-              </div>
-            </div>
-          </motion.div>
-        </section>
-
-        {/* ── Review severity breakdown ── */}
-        <section>
-          <h2 className="text-sm font-bold text-foreground mb-4 flex items-center gap-2">
-            <FileSearch className="h-4 w-4 text-primary" /> Issue Breakdown
-          </h2>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-            <StatCard title="Critical" value={criticalIssues} icon={AlertTriangle} color="bg-red-100 text-red-600 dark:bg-red-900/20 dark:text-red-400" />
-            <StatCard title="Medium" value={mediumIssues} icon={AlertCircle} color="bg-amber-100 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400" />
-            <StatCard title="Low" value={lowIssues} icon={Info} color="bg-emerald-100 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400" />
-            <StatCard title="Open" value={openIssues} icon={AlertCircle} color="bg-orange-100 text-orange-600 dark:bg-orange-900/20 dark:text-orange-400" />
-            <StatCard title="Resolved" value={resolvedIssues} icon={CheckCircle2} color="bg-emerald-100 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400" />
-          </div>
-        </section>
-
-        {/* ── Reviews last 7 days chart (simple bar) ── */}
-        <motion.section
-          initial="hidden"
-          animate="visible"
-          variants={fadeUp}
-          custom={8}
-          className="rounded-2xl border border-border bg-card p-5 shadow-sm"
-        >
-          <h3 className="text-sm font-bold text-card-foreground mb-4 flex items-center gap-2">
-            <Calendar className="h-4 w-4 text-primary" /> Reviews — Last 7 Days
-          </h3>
-          <div className="flex items-end gap-3 h-40">
-            {reviewsByDay.map((day) => {
-              const max = Math.max(...reviewsByDay.map((d) => d.count), 1);
-              const pct = (day.count / max) * 100;
-              return (
-                <div key={day.date} className="flex-1 flex flex-col items-center gap-1">
-                  <span className="text-[10px] font-bold text-card-foreground">{day.count}</span>
-                  <div className="w-full rounded-t-lg bg-primary/20 relative" style={{ height: `${Math.max(pct, 4)}%` }}>
-                    <div
-                      className="absolute bottom-0 left-0 right-0 rounded-t-lg bg-primary transition-all"
-                      style={{ height: "100%" }}
-                    />
-                  </div>
-                  <span className="text-[9px] text-muted-foreground">{day.date.slice(5)}</span>
-                </div>
-              );
-            })}
-          </div>
-        </motion.section>
-
-        {/* ── Maintenance Mode & Notice Controls ── */}
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Maintenance Mode */}
-          <motion.div
-            initial="hidden"
-            animate="visible"
-            variants={fadeUp}
-            custom={9}
-            className="rounded-2xl border border-border bg-card p-6 shadow-sm"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-orange-100 dark:bg-orange-900/20">
-                  <Construction className="h-4 w-4 text-orange-600 dark:text-orange-400" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-card-foreground">Maintenance Mode</h3>
-                  <p className="text-[10px] text-muted-foreground">Block user access when enabled</p>
-                </div>
-              </div>
-              <Button
-                variant={isMaintenanceOn ? "destructive" : "outline"}
-                size="sm"
-                className="rounded-xl gap-1.5 text-xs"
-                onClick={handleToggleMaintenance}
-                disabled={updateSettings.isPending}
-              >
-                {updateSettings.isPending ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : isMaintenanceOn ? (
-                  <PowerOff className="h-3.5 w-3.5" />
-                ) : (
-                  <Power className="h-3.5 w-3.5" />
-                )}
-                {isMaintenanceOn ? "Turn OFF" : "Turn ON"}
-              </Button>
-            </div>
-
-            <div className={`rounded-xl border px-3 py-2 text-xs mb-3 ${isMaintenanceOn ? "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400" : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400"}`}>
-              Status: <span className="font-bold">{isMaintenanceOn ? "ACTIVE — Users cannot access features" : "OFF — Site is operational"}</span>
-            </div>
-
-            <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Maintenance Message</Label>
-              <textarea
-                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm resize-none h-20 focus:outline-none focus:ring-1 focus:ring-primary"
-                value={maintenanceMsg}
-                onChange={(e) => setMaintenanceMsg(e.target.value)}
-                placeholder="Enter message shown to users during maintenance..."
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-xl text-xs"
-                onClick={handleSaveMaintenanceMsg}
-                disabled={updateSettings.isPending}
-              >
-                Save Message
-              </Button>
-            </div>
-          </motion.div>
-
-          {/* Notice/Announcement */}
-          <motion.div
-            initial="hidden"
-            animate="visible"
-            variants={fadeUp}
-            custom={10}
-            className="rounded-2xl border border-border bg-card p-6 shadow-sm"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/20">
-                  <Megaphone className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-card-foreground">Notice Banner</h3>
-                  <p className="text-[10px] text-muted-foreground">Show announcements to all users</p>
-                </div>
-              </div>
-              <Button
-                variant={isNoticeOn ? "destructive" : "outline"}
-                size="sm"
-                className="rounded-xl gap-1.5 text-xs"
-                onClick={handleToggleNotice}
-                disabled={updateSettings.isPending}
-              >
-                {updateSettings.isPending ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : isNoticeOn ? (
-                  <BellOff className="h-3.5 w-3.5" />
-                ) : (
-                  <Bell className="h-3.5 w-3.5" />
-                )}
-                {isNoticeOn ? "Hide Notice" : "Show Notice"}
-              </Button>
-            </div>
-
-            {isNoticeOn && noticeMsg && (
-              <div className={`rounded-xl border px-3 py-2 text-xs mb-3 ${noticeColors[noticeType]}`}>
-                Preview: {noticeMsg}
-              </div>
-            )}
-
-            <div className="space-y-3">
-              <div>
-                <Label className="text-xs text-muted-foreground">Notice Message</Label>
-                <Input
-                  className="mt-1 rounded-xl text-sm"
-                  value={noticeMsg}
-                  onChange={(e) => setNoticeMsg(e.target.value)}
-                  placeholder="e.g. Scheduled downtime on Saturday 2AM UTC"
+            <div className="flex items-center gap-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  className="pl-10 pr-4 py-2 w-64 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                 />
               </div>
+              <button className="relative p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                <Bell className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+              </button>
+            </div>
+          </div>
+        </header>
 
-              <div>
-                <Label className="text-xs text-muted-foreground">Type</Label>
-                <div className="flex gap-2 mt-1">
-                  {(["info", "warning", "critical"] as const).map((t) => (
+        <div className="p-8 space-y-8">
+          {/* ── Overview Stats ── */}
+          <section>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                <BarChart3 className="h-5 w-5 text-primary" />
+                Platform Overview
+              </h2>
+              <span className="text-sm text-gray-500">
+                Last updated: {format(new Date(), 'MMM d, yyyy h:mm a')}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              <StatCard 
+                title="Total Users" 
+                value={totalUsers} 
+                icon={Users} 
+                color="primary"
+                delay={0}
+              />
+              <StatCard 
+                title="Total Reviews" 
+                value={totalReviews} 
+                icon={FileSearch} 
+                color="blue"
+                delay={1}
+              />
+              <StatCard 
+                title="Repositories" 
+                value={totalRepos} 
+                icon={GitFork} 
+                color="violet"
+                delay={2}
+              />
+              <StatCard 
+                title="Open Issues" 
+                value={openIssues} 
+                icon={AlertCircle} 
+                color="amber"
+                delay={3}
+              />
+            </div>
+          </section>
+
+          {/* ── Signups & Logins Row ── */}
+          <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <motion.div
+              initial="hidden"
+              animate="visible"
+              variants={fadeIn}
+              custom={4}
+              className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-6 shadow-sm"
+            >
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl flex items-center justify-center">
+                  <UserPlus className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900 dark:text-white">Signups</h3>
+                  <p className="text-xs text-gray-500">New user registrations</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <MiniStat label="Today" value={signupsToday} />
+                <MiniStat label="Last 7 days" value={signups7d} />
+                <MiniStat label="Last 30 days" value={signups30d} />
+              </div>
+            </motion.div>
+
+            <motion.div
+              initial="hidden"
+              animate="visible"
+              variants={fadeIn}
+              custom={5}
+              className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-6 shadow-sm"
+            >
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 bg-blue-50 dark:bg-blue-900/20 rounded-xl flex items-center justify-center">
+                  <LogIn className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900 dark:text-white">Logins</h3>
+                  <p className="text-xs text-gray-500">User login activity</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <MiniStat label="Today" value={loginsToday} />
+                <MiniStat label="Last 7 days" value={logins7d} />
+                <MiniStat label="Last 30 days" value={logins30d} />
+              </div>
+            </motion.div>
+          </section>
+
+          {/* ── Charts Row ── */}
+          <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Issue Breakdown Donut */}
+            <motion.div
+              initial="hidden"
+              animate="visible"
+              variants={fadeIn}
+              custom={6}
+              className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-6 shadow-sm"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="font-semibold text-gray-900 dark:text-white">Issue Breakdown</h3>
+                  <p className="text-xs text-gray-500">Distribution by severity</p>
+                </div>
+                <button className="text-xs text-primary font-medium hover:underline flex items-center gap-1">
+                  View all <ChevronRight className="h-3 w-3" />
+                </button>
+              </div>
+              <DonutChart data={donutData} />
+            </motion.div>
+
+            {/* Reviews Trend Bar Chart */}
+            <motion.div
+              initial="hidden"
+              animate="visible"
+              variants={fadeIn}
+              custom={7}
+              className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-6 shadow-sm"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="font-semibold text-gray-900 dark:text-white">Reviews — Last 7 Days</h3>
+                  <p className="text-xs text-gray-500">Daily code review activity</p>
+                </div>
+                <div className="flex gap-1">
+                  {["Daily", "Weekly", "Monthly"].map((period, idx) => (
                     <button
-                      key={t}
-                      onClick={() => setNoticeType(t)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                        noticeType === t
-                          ? t === "info"
-                            ? "bg-blue-100 border-blue-300 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-300"
-                            : t === "warning"
-                            ? "bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300"
-                            : "bg-red-100 border-red-300 text-red-700 dark:bg-red-900/30 dark:border-red-700 dark:text-red-300"
-                          : "bg-background border-border text-muted-foreground hover:bg-muted"
+                      key={period}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        idx === 0 
+                          ? "bg-primary text-white" 
+                          : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
                       }`}
                     >
-                      {t.charAt(0).toUpperCase() + t.slice(1)}
+                      {period}
                     </button>
                   ))}
                 </div>
               </div>
+              <BarChart data={reviewsByDay} height={180} />
+            </motion.div>
+          </section>
 
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-xl text-xs"
-                onClick={handleSaveNotice}
-                disabled={updateSettings.isPending}
-              >
-                Save Notice
-              </Button>
+          {/* ── Issue Stats Row ── */}
+          <section>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-primary" />
+              Issue Statistics
+            </h2>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+              <StatCard title="Critical" value={criticalIssues} icon={AlertTriangle} color="red" delay={8} />
+              <StatCard title="Medium" value={mediumIssues} icon={AlertCircle} color="amber" delay={9} />
+              <StatCard title="Low" value={lowIssues} icon={Info} color="emerald" delay={10} />
+              <StatCard title="Open" value={openIssues} icon={Eye} color="amber" delay={11} />
+              <StatCard title="Resolved" value={resolvedIssues} icon={CheckCircle2} color="emerald" delay={12} />
             </div>
-          </motion.div>
-        </section>
+          </section>
 
-        {/* ── All Users Table ── */}
-        <motion.section
-          initial="hidden"
-          animate="visible"
-          variants={fadeUp}
-          custom={11}
-          className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden"
-        >
-          <div className="px-5 py-4 border-b border-border flex items-center gap-2">
-            <Users className="h-4 w-4 text-primary" />
-            <h3 className="text-sm font-bold text-card-foreground">All Users ({totalUsers})</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="bg-muted/40 text-muted-foreground">
-                  <th className="text-left px-5 py-3 font-medium">Email</th>
-                  <th className="text-left px-5 py-3 font-medium">Provider</th>
-                  <th className="text-left px-5 py-3 font-medium">Signed Up</th>
-                  <th className="text-left px-5 py-3 font-medium">Last Sign In</th>
-                  <th className="text-left px-5 py-3 font-medium">Confirmed</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {users.map((u) => (
-                  <tr key={u.id} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-5 py-3 font-medium text-card-foreground flex items-center gap-2">
-                      <Mail className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                      <span className="truncate max-w-[200px]">{u.email}</span>
-                    </td>
-                    <td className="px-5 py-3 text-muted-foreground capitalize">{u.provider}</td>
-                    <td className="px-5 py-3 text-muted-foreground">
-                      {u.createdAt ? formatDistanceToNow(new Date(u.createdAt), { addSuffix: true }) : "—"}
-                    </td>
-                    <td className="px-5 py-3 text-muted-foreground">
-                      {u.lastSignIn ? formatDistanceToNow(new Date(u.lastSignIn), { addSuffix: true }) : "Never"}
-                    </td>
-                    <td className="px-5 py-3">
-                      {u.emailConfirmed ? (
-                        <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                      ) : (
-                        <XCircle className="h-4 w-4 text-red-400" />
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {users.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">
-                      No users found
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </motion.section>
+          {/* ── Controls Row ── */}
+          <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Maintenance Mode */}
+            <motion.div
+              initial="hidden"
+              animate="visible"
+              variants={fadeIn}
+              custom={13}
+              className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-6 shadow-sm"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                    isMaintenanceOn ? "bg-red-100 dark:bg-red-900/20" : "bg-gray-100 dark:bg-gray-800"
+                  }`}>
+                    <Construction className={`h-5 w-5 ${isMaintenanceOn ? "text-red-600" : "text-gray-500"}`} />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-900 dark:text-white">Maintenance Mode</h3>
+                    <p className="text-xs text-gray-500">Block user access during maintenance</p>
+                  </div>
+                </div>
+                <Button
+                  variant={isMaintenanceOn ? "destructive" : "outline"}
+                  size="sm"
+                  className="rounded-xl gap-2"
+                  onClick={handleToggleMaintenance}
+                  disabled={updateSettings.isPending}
+                >
+                  {updateSettings.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : isMaintenanceOn ? (
+                    <PowerOff className="h-4 w-4" />
+                  ) : (
+                    <Power className="h-4 w-4" />
+                  )}
+                  {isMaintenanceOn ? "Turn OFF" : "Turn ON"}
+                </Button>
+              </div>
+              
+              <div className={`rounded-xl px-4 py-3 text-sm mb-4 ${
+                isMaintenanceOn 
+                  ? "bg-red-50 text-red-700 border border-red-100 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800" 
+                  : "bg-emerald-50 text-emerald-700 border border-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800"
+              }`}>
+                <span className="font-medium">Status:</span> {isMaintenanceOn ? "Active — Users cannot access" : "Inactive — Site operational"}
+              </div>
 
-        {/* ── Recent Activity Log ── */}
-        <motion.section
-          initial="hidden"
-          animate="visible"
-          variants={fadeUp}
-          custom={12}
-          className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden"
-        >
-          <div className="px-5 py-4 border-b border-border flex items-center gap-2">
-            <Clock className="h-4 w-4 text-primary" />
-            <h3 className="text-sm font-bold text-card-foreground">Recent Activity</h3>
-          </div>
-          <div className="overflow-x-auto max-h-80 overflow-y-auto">
-            <table className="w-full text-xs">
-              <thead className="sticky top-0 bg-card">
-                <tr className="bg-muted/40 text-muted-foreground">
-                  <th className="text-left px-5 py-3 font-medium">Event</th>
-                  <th className="text-left px-5 py-3 font-medium">Email</th>
-                  <th className="text-left px-5 py-3 font-medium">IP</th>
-                  <th className="text-left px-5 py-3 font-medium">Time</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {recentActivity.map((a) => {
-                  const eventColors: Record<string, string> = {
-                    signup: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400",
-                    login: "bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400",
-                    logout: "bg-gray-100 text-gray-700 dark:bg-gray-900/20 dark:text-gray-400",
-                  };
-                  return (
-                    <tr key={a.id} className="hover:bg-muted/20 transition-colors">
-                      <td className="px-5 py-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold ${eventColors[a.event_type] || "bg-muted text-muted-foreground"}`}>
-                          {a.event_type}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3 text-muted-foreground truncate max-w-[180px]">{a.email || "—"}</td>
-                      <td className="px-5 py-3 text-muted-foreground font-mono">{a.ip_address || "—"}</td>
-                      <td className="px-5 py-3 text-muted-foreground">
-                        {a.created_at ? formatDistanceToNow(new Date(a.created_at), { addSuffix: true }) : "—"}
-                      </td>
+              <div>
+                <Label className="text-sm text-gray-600 dark:text-gray-400">Message</Label>
+                <textarea
+                  className="mt-2 w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-4 py-3 text-sm resize-none h-20 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  value={maintenanceMsg}
+                  onChange={(e) => setMaintenanceMsg(e.target.value)}
+                  placeholder="Message shown during maintenance..."
+                />
+              </div>
+            </motion.div>
+
+            {/* Notice Banner */}
+            <motion.div
+              initial="hidden"
+              animate="visible"
+              variants={fadeIn}
+              custom={14}
+              className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-6 shadow-sm"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                    isNoticeOn ? "bg-blue-100 dark:bg-blue-900/20" : "bg-gray-100 dark:bg-gray-800"
+                  }`}>
+                    <Megaphone className={`h-5 w-5 ${isNoticeOn ? "text-blue-600" : "text-gray-500"}`} />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-900 dark:text-white">Notice Banner</h3>
+                    <p className="text-xs text-gray-500">Display announcements to users</p>
+                  </div>
+                </div>
+                <Button
+                  variant={isNoticeOn ? "destructive" : "outline"}
+                  size="sm"
+                  className="rounded-xl gap-2"
+                  onClick={handleToggleNotice}
+                  disabled={updateSettings.isPending}
+                >
+                  {updateSettings.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : isNoticeOn ? (
+                    <BellOff className="h-4 w-4" />
+                  ) : (
+                    <Bell className="h-4 w-4" />
+                  )}
+                  {isNoticeOn ? "Hide" : "Show"}
+                </Button>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-sm text-gray-600 dark:text-gray-400">Message</Label>
+                  <Input
+                    className="mt-2 rounded-xl"
+                    value={noticeMsg}
+                    onChange={(e) => setNoticeMsg(e.target.value)}
+                    placeholder="Enter announcement message..."
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm text-gray-600 dark:text-gray-400">Type</Label>
+                  <div className="flex gap-2 mt-2">
+                    {(["info", "warning", "critical"] as const).map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setNoticeType(t)}
+                        className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
+                          noticeType === t
+                            ? t === "info"
+                              ? "bg-blue-100 border-blue-200 text-blue-700 dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-300"
+                              : t === "warning"
+                              ? "bg-amber-100 border-amber-200 text-amber-700 dark:bg-amber-900/30 dark:border-amber-800 dark:text-amber-300"
+                              : "bg-red-100 border-red-200 text-red-700 dark:bg-red-900/30 dark:border-red-800 dark:text-red-300"
+                            : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+                        }`}
+                      >
+                        {t.charAt(0).toUpperCase() + t.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl"
+                  onClick={handleSaveNotice}
+                  disabled={updateSettings.isPending}
+                >
+                  Save Changes
+                </Button>
+              </div>
+            </motion.div>
+          </section>
+
+          {/* ── Users & Activity Tables ── */}
+          <section className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+            {/* Tab Header */}
+            <div className="flex items-center gap-1 p-4 border-b border-gray-100 dark:border-gray-800">
+              <button
+                onClick={() => setActiveTab("users")}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 ${
+                  activeTab === "users"
+                    ? "bg-primary text-white"
+                    : "text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+                }`}
+              >
+                <Users className="h-4 w-4" />
+                All Users ({totalUsers})
+              </button>
+              <button
+                onClick={() => setActiveTab("activity")}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 ${
+                  activeTab === "activity"
+                    ? "bg-primary text-white"
+                    : "text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+                }`}
+              >
+                <Clock className="h-4 w-4" />
+                Recent Activity
+              </button>
+            </div>
+
+            {/* Users Table */}
+            {activeTab === "users" && (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-gray-50 dark:bg-gray-800/50">
+                      <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">User</th>
+                      <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Provider</th>
+                      <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Signed Up</th>
+                      <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Last Sign In</th>
+                      <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                     </tr>
-                  );
-                })}
-                {recentActivity.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="px-5 py-8 text-center text-muted-foreground">
-                      No activity logged yet
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </motion.section>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                    {users.map((u) => (
+                      <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 bg-primary/10 rounded-full flex items-center justify-center">
+                              <span className="text-sm font-semibold text-primary">
+                                {u.email?.charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900 dark:text-white">{u.email}</p>
+                              <p className="text-xs text-gray-500">ID: {u.id.slice(0, 8)}...</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 capitalize">
+                            {u.provider}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">
+                          {u.createdAt ? formatDistanceToNow(new Date(u.createdAt), { addSuffix: true }) : "—"}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">
+                          {u.lastSignIn ? formatDistanceToNow(new Date(u.lastSignIn), { addSuffix: true }) : "Never"}
+                        </td>
+                        <td className="px-6 py-4">
+                          {u.emailConfirmed ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400">
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              Verified
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+                              <XCircle className="h-3.5 w-3.5" />
+                              Pending
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {users.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                          No users found
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Activity Table */}
+            {activeTab === "activity" && (
+              <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                <table className="w-full">
+                  <thead className="sticky top-0 bg-white dark:bg-gray-900">
+                    <tr className="bg-gray-50 dark:bg-gray-800/50">
+                      <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Event</th>
+                      <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">User</th>
+                      <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">IP Address</th>
+                      <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Time</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                    {recentActivity.map((a) => {
+                      const eventStyles: Record<string, string> = {
+                        signup: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400",
+                        login: "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400",
+                        logout: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400",
+                      };
+                      return (
+                        <tr key={a.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
+                          <td className="px-6 py-4">
+                            <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold ${eventStyles[a.event_type] || "bg-gray-100 text-gray-600"}`}>
+                              {a.event_type}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">
+                            {a.email || "—"}
+                          </td>
+                          <td className="px-6 py-4 text-sm font-mono text-gray-500">
+                            {a.ip_address || "—"}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">
+                            {a.created_at ? formatDistanceToNow(new Date(a.created_at), { addSuffix: true }) : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {recentActivity.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-6 py-12 text-center text-gray-500">
+                          No activity logged yet
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </div>
       </main>
     </div>
   );
