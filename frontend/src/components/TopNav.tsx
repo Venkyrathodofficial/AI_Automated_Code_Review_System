@@ -148,7 +148,7 @@ export function TopNav({ title, subtitle }: TopNavProps) {
   const handleLogout = async () => {
     setProfileOpen(false);
     await signOut();
-    navigate("/login");
+    navigate("/");
   };
 
   const severityDot: Record<string, string> = {

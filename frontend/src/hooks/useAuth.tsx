@@ -7,6 +7,7 @@ import {
 } from "react";
 import type { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { logActivity } from "@/lib/adminApi";
 
 interface AuthContextType {
   user: User | null;
@@ -45,19 +46,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
+    if (!error && data.user) {
+      logActivity("login", data.user.id, email);
+    }
     return { error: error as Error | null };
   };
 
   const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (!error && data.user) {
+      logActivity("signup", data.user.id, email);
+    }
     return { error: error as Error | null };
   };
 
   const signOut = async () => {
+    if (user) {
+      logActivity("logout", user.id, user.email);
+    }
     await supabase.auth.signOut();
   };
 

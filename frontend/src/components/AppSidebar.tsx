@@ -1,6 +1,7 @@
-import { ShieldCheck, LayoutDashboard, GitFork, AlertTriangle, Settings, LogOut, HelpCircle } from "lucide-react";
+import { ShieldCheck, LayoutDashboard, GitFork, AlertTriangle, Settings, LogOut, HelpCircle, Shield } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/useAuth";
+import { useAdminCheck } from "@/hooks/useAdmin";
 import { useNavigate } from "react-router-dom";
 import {
   Sidebar,
@@ -29,6 +30,7 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const { signOut } = useAuth();
+  const { data: adminCheck } = useAdminCheck();
   const navigate = useNavigate();
 
   const handleLogout = async () => {
@@ -108,6 +110,16 @@ export function AppSidebar() {
 
         <div className="mt-auto px-3 pb-4 space-y-1">
           <Separator className="mb-3" />
+          {adminCheck?.isAdmin && (
+            <NavLink
+              to="/admin"
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium text-sidebar-foreground transition-all duration-200 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              activeClassName="bg-primary text-primary-foreground shadow-sm hover:bg-primary hover:text-primary-foreground"
+            >
+              <Shield className="h-[18px] w-[18px] shrink-0" />
+              {!collapsed && <span>Admin Panel</span>}
+            </NavLink>
+          )}
           <button
             onClick={handleLogout}
             className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium text-sidebar-foreground transition-all duration-200 hover:bg-destructive/10 hover:text-destructive"

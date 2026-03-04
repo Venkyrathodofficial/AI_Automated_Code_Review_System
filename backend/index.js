@@ -504,6 +504,35 @@ app.get("/", (req, res) => {
 });
 
 // ============================
+// Public: Platform stats for landing page
+// ============================
+app.get("/api/public/stats", async (_req, res) => {
+  try {
+    const { count: totalReviews } = await supabase
+      .from("code_reviews")
+      .select("id", { count: "exact", head: true });
+
+    const { count: totalRepos } = await supabase
+      .from("user_repositories")
+      .select("id", { count: "exact", head: true });
+
+    const { data: usersData } = await supabase.auth.admin.listUsers({ perPage: 1 });
+    // listUsers returns total in the response
+    const totalUsers = usersData?.users?.length !== undefined
+      ? (await supabase.auth.admin.listUsers({ perPage: 1000 })).data?.users?.length || 0
+      : 0;
+
+    return res.json({
+      totalReviews: totalReviews || 0,
+      totalRepos: totalRepos || 0,
+      totalUsers,
+    });
+  } catch (err) {
+    return res.json({ totalReviews: 0, totalRepos: 0, totalUsers: 0 });
+  }
+});
+
+// ============================
 // API: Get user's connected repositories
 // ============================
 app.get("/api/repositories", authMiddleware, async (req, res) => {
@@ -900,6 +929,236 @@ app.post("/api/repositories/scan", authMiddleware, async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Scan Error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ============================
+// Admin Middleware
+// ============================
+async function adminMiddleware(req, res, next) {
+  // Runs after authMiddleware — checks if user is an admin
+  const { data, error } = await supabase
+    .from("admin_users")
+    .select("id")
+    .eq("user_id", req.user.id)
+    .single();
+
+  if (error || !data) {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  next();
+}
+
+// ============================
+// Public: Get admin settings (maintenance & notice)
+// No auth required — every visitor needs this
+// ============================
+app.get("/api/admin/settings", async (_req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("admin_settings")
+      .select("maintenance_mode, maintenance_message, notice_enabled, notice_message, notice_type, updated_at")
+      .eq("id", "global")
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+  } catch (err) {
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ============================
+// Admin: Check if current user is admin
+// ============================
+app.get("/api/admin/check", authMiddleware, async (req, res) => {
+  try {
+    const { data } = await supabase
+      .from("admin_users")
+      .select("id, role")
+      .eq("user_id", req.user.id)
+      .single();
+
+    return res.json({ isAdmin: !!data, role: data?.role || null });
+  } catch (err) {
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ============================
+// Admin: Get dashboard stats
+// ============================
+app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    // Total users from auth.users via admin API
+    // We use supabase service key to list users
+    const { data: usersData, error: usersErr } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+    const allUsers = usersErr ? [] : (usersData?.users || []);
+
+    // Activity log stats
+    const { data: activityData } = await supabase
+      .from("user_activity_log")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(500);
+
+    const activities = activityData || [];
+
+    // Code reviews count
+    const { count: totalReviews } = await supabase
+      .from("code_reviews")
+      .select("id", { count: "exact", head: true });
+
+    // Repositories count
+    const { count: totalRepos } = await supabase
+      .from("user_repositories")
+      .select("id", { count: "exact", head: true });
+
+    // Code reviews by severity
+    const { data: allReviews } = await supabase
+      .from("code_reviews")
+      .select("severity, status, created_at");
+
+    const reviews = allReviews || [];
+
+    // Compute stats
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const last7d = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const last30d = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const signups = activities.filter((a) => a.event_type === "signup");
+    const logins = activities.filter((a) => a.event_type === "login");
+
+    const signupsToday = signups.filter((a) => new Date(a.created_at) >= today).length;
+    const signups7d = signups.filter((a) => new Date(a.created_at) >= last7d).length;
+    const signups30d = signups.filter((a) => new Date(a.created_at) >= last30d).length;
+
+    const loginsToday = logins.filter((a) => new Date(a.created_at) >= today).length;
+    const logins7d = logins.filter((a) => new Date(a.created_at) >= last7d).length;
+    const logins30d = logins.filter((a) => new Date(a.created_at) >= last30d).length;
+
+    const criticalIssues = reviews.filter((r) => r.severity?.toLowerCase() === "critical").length;
+    const mediumIssues = reviews.filter((r) => r.severity?.toLowerCase() === "medium").length;
+    const lowIssues = reviews.filter((r) => r.severity?.toLowerCase() === "low").length;
+    const openIssues = reviews.filter((r) => r.status?.toLowerCase() === "open").length;
+    const resolvedIssues = reviews.filter((r) => r.status?.toLowerCase() === "resolved").length;
+
+    // Reviews last 7 days breakdown (for chart)
+    const reviewsByDay = [];
+    for (let i = 6; i >= 0; i--) {
+      const day = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
+      const nextDay = new Date(day.getTime() + 24 * 60 * 60 * 1000);
+      const dayLabel = day.toISOString().slice(0, 10);
+      const count = reviews.filter((r) => {
+        const d = new Date(r.created_at);
+        return d >= day && d < nextDay;
+      }).length;
+      reviewsByDay.push({ date: dayLabel, count });
+    }
+
+    // Users list (sanitized)
+    const users = allUsers.map((u) => ({
+      id: u.id,
+      email: u.email,
+      createdAt: u.created_at,
+      lastSignIn: u.last_sign_in_at,
+      emailConfirmed: !!u.email_confirmed_at,
+      provider: u.app_metadata?.provider || "email",
+    }));
+
+    // Admin settings
+    const { data: settings } = await supabase
+      .from("admin_settings")
+      .select("*")
+      .eq("id", "global")
+      .single();
+
+    return res.json({
+      totalUsers: allUsers.length,
+      totalReviews: totalReviews || 0,
+      totalRepos: totalRepos || 0,
+      signupsToday,
+      signups7d,
+      signups30d,
+      loginsToday,
+      logins7d,
+      logins30d,
+      criticalIssues,
+      mediumIssues,
+      lowIssues,
+      openIssues,
+      resolvedIssues,
+      reviewsByDay,
+      users,
+      recentActivity: activities.slice(0, 50),
+      settings: settings || {},
+    });
+  } catch (err) {
+    console.error("❌ Admin Dashboard Error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ============================
+// Admin: Update settings (maintenance, notice)
+// ============================
+app.put("/api/admin/settings", authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const {
+      maintenance_mode,
+      maintenance_message,
+      notice_enabled,
+      notice_message,
+      notice_type,
+    } = req.body;
+
+    const updates = { updated_at: new Date().toISOString(), updated_by: req.user.id };
+    if (typeof maintenance_mode === "boolean") updates.maintenance_mode = maintenance_mode;
+    if (typeof maintenance_message === "string") updates.maintenance_message = maintenance_message;
+    if (typeof notice_enabled === "boolean") updates.notice_enabled = notice_enabled;
+    if (typeof notice_message === "string") updates.notice_message = notice_message;
+    if (typeof notice_type === "string") updates.notice_type = notice_type;
+
+    const { data, error } = await supabase
+      .from("admin_settings")
+      .update(updates)
+      .eq("id", "global")
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+  } catch (err) {
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ============================
+// Admin: Log user activity (called from frontend)
+// ============================
+app.post("/api/activity/log", async (req, res) => {
+  try {
+    const { user_id, email, event_type } = req.body;
+    if (!event_type) return res.status(400).json({ error: "event_type required" });
+
+    const ip = req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "";
+    const userAgent = req.headers["user-agent"] || "";
+
+    const { error } = await supabase
+      .from("user_activity_log")
+      .insert({
+        user_id: user_id || null,
+        email: email || null,
+        event_type,
+        ip_address: typeof ip === "string" ? ip : ip[0],
+        user_agent: userAgent,
+      });
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ success: true });
+  } catch (err) {
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

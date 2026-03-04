@@ -1,6 +1,8 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { Loader2 } from "lucide-react";
+import { MaintenanceOverlay } from "@/components/MaintenanceOverlay";
+import { NoticeBanner } from "@/components/NoticeBanner";
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -17,5 +19,11 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/" replace />;
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      <MaintenanceOverlay />
+      <NoticeBanner />
+      {children}
+    </>
+  );
 }

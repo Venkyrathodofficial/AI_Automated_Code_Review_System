@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
+import { useState, useEffect } from "react";
 import {
   ShieldCheck,
   GitPullRequest,
@@ -123,6 +124,23 @@ const stats = [
 
 const Landing = () => {
   const { user } = useAuth();
+
+  // Fetch real platform stats
+  const [platformStats, setPlatformStats] = useState({ totalReviews: 0, totalRepos: 0, totalUsers: 0 });
+  useEffect(() => {
+    const BASE = import.meta.env.VITE_API_URL || "/api";
+    fetch(`${BASE}/public/stats`)
+      .then((r) => r.json())
+      .then((d) => setPlatformStats(d))
+      .catch(() => {});
+  }, []);
+
+  const dynamicStats = [
+    { value: platformStats.totalReviews > 0 ? platformStats.totalReviews.toLocaleString() + "+" : "50K+", label: "Issues Detected", icon: Bug },
+    { value: platformStats.totalRepos > 0 ? platformStats.totalRepos.toLocaleString() + "+" : "10K+", label: "Repositories", icon: Github },
+    { value: platformStats.totalUsers > 0 ? platformStats.totalUsers.toLocaleString() + "+" : "5K+", label: "Developers", icon: Users },
+    { value: "99.9%", label: "Uptime", icon: Globe },
+  ];
 
   return (
     <div className="min-h-screen bg-background text-foreground overflow-x-hidden">
@@ -274,7 +292,7 @@ const Landing = () => {
       <section id="stats" className="border-y border-border bg-muted/30">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-12">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-            {stats.map((s, i) => (
+            {dynamicStats.map((s, i) => (
               <motion.div
                 key={s.label}
                 className="text-center"
