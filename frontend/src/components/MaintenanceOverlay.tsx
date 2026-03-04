@@ -1,61 +1,61 @@
-import { motion } from "framer-motion";
-import { Construction, ShieldCheck } from "lucide-react";
-import { useAdminSettings } from "@/hooks/useAdmin";
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Construction, ShieldCheck, X } from "lucide-react";
+import { useAdminSettings, useAdminCheck } from "@/hooks/useAdmin";
 
 /**
- * Full-screen overlay shown when maintenance mode is ON.
- * Renders on top of all user-facing pages (not admin panel).
+ * Popup shown to non-admin users when maintenance mode is ON.
+ * Admins never see this. Users can dismiss but features remain blocked.
  */
 export function MaintenanceOverlay() {
   const { data: settings } = useAdminSettings();
+  const { data: adminCheck } = useAdminCheck();
+  const [dismissed, setDismissed] = useState(false);
 
-  if (!settings?.maintenance_mode) return null;
+  // Don't show if maintenance is off, user is admin, or popup was dismissed
+  if (!settings?.maintenance_mode || adminCheck?.isAdmin || dismissed) return null;
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-background/95 backdrop-blur-md"
-    >
-      <div className="text-center px-6 max-w-lg">
-        <motion.div
-          initial={{ scale: 0.8, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ delay: 0.1, type: "spring", stiffness: 200 }}
-          className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-3xl bg-amber-100 dark:bg-amber-900/30"
+    <AnimatePresence>
+      <div className="fixed inset-0 z-[9998] bg-black/30 backdrop-blur-[2px]" onClick={() => setDismissed(true)} />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.9, y: 20 }}
+        transition={{ type: "spring", stiffness: 300, damping: 25 }}
+        className="fixed left-1/2 top-1/2 z-[9999] -translate-x-1/2 -translate-y-1/2 w-[90vw] max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl"
+      >
+        {/* Close button */}
+        <button
+          onClick={() => setDismissed(true)}
+          className="absolute right-3 top-3 rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          aria-label="Dismiss"
         >
-          <Construction className="h-10 w-10 text-amber-600 dark:text-amber-400" />
-        </motion.div>
+          <X className="h-4 w-4" />
+        </button>
 
-        <motion.h1
-          className="text-2xl sm:text-3xl font-extrabold text-foreground"
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: 0.2 }}
-        >
-          Under Maintenance
-        </motion.h1>
+        <div className="text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-100 dark:bg-amber-900/30">
+            <Construction className="h-7 w-7 text-amber-600 dark:text-amber-400" />
+          </div>
 
-        <motion.p
-          className="mt-4 text-sm sm:text-base text-muted-foreground leading-relaxed"
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: 0.3 }}
-        >
-          {settings.maintenance_message ||
-            "We are currently performing scheduled maintenance. Please check back shortly."}
-        </motion.p>
+          <h2 className="text-lg font-extrabold text-foreground">Under Maintenance</h2>
 
-        <motion.div
-          className="mt-8 flex items-center justify-center gap-2 text-xs text-muted-foreground"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-        >
-          <ShieldCheck className="h-4 w-4 text-primary" />
-          <span className="font-semibold">CodeAurora Sentinel AI</span>
-        </motion.div>
-      </div>
-    </motion.div>
+          <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+            {settings.maintenance_message ||
+              "We are currently performing scheduled maintenance. Please check back shortly."}
+          </p>
+
+          <p className="mt-4 text-[11px] text-muted-foreground/70">
+            Some features may be temporarily unavailable.
+          </p>
+
+          <div className="mt-5 flex items-center justify-center gap-1.5 text-[10px] text-muted-foreground">
+            <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+            <span className="font-semibold">CodeAurora Sentinel AI</span>
+          </div>
+        </div>
+      </motion.div>
+    </AnimatePresence>
   );
 }
