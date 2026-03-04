@@ -516,11 +516,30 @@ app.get("/api/public/stats", async (_req, res) => {
       .from("user_repositories")
       .select("id", { count: "exact", head: true });
 
-    const { data: usersData } = await supabase.auth.admin.listUsers({ perPage: 1 });
-    // listUsers returns total in the response
-    const totalUsers = usersData?.users?.length !== undefined
-      ? (await supabase.auth.admin.listUsers({ perPage: 1000 })).data?.users?.length || 0
-      : 0;
+    // Try to get users from auth.admin
+    let totalUsers = 0;
+    try {
+      const { data: usersData, error: usersErr } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+      if (!usersErr && usersData?.users) {
+        totalUsers = usersData.users.length;
+      }
+    } catch (authErr) {
+      console.log("⚠️ public/stats: auth.admin.listUsers() failed:", authErr.message);
+    }
+
+    // Fallback: count unique users from activity log
+    if (totalUsers === 0) {
+      const { data: activityData } = await supabase
+        .from("user_activity_log")
+        .select("user_id, email")
+        .limit(5000);
+      
+      if (activityData && activityData.length > 0) {
+        const uniqueUserIds = new Set(activityData.filter(a => a.user_id).map(a => a.user_id));
+        const uniqueEmails = new Set(activityData.filter(a => a.email).map(a => a.email.toLowerCase()));
+        totalUsers = Math.max(uniqueUserIds.size, uniqueEmails.size);
+      }
+    }
 
     return res.json({
       totalReviews: totalReviews || 0,
@@ -528,6 +547,7 @@ app.get("/api/public/stats", async (_req, res) => {
       totalUsers,
     });
   } catch (err) {
+    console.error("❌ Public stats error:", err);
     return res.json({ totalReviews: 0, totalRepos: 0, totalUsers: 0 });
   }
 });
@@ -993,17 +1013,44 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
   try {
     // Total users from auth.users via admin API
     // We use supabase service key to list users
-    const { data: usersData, error: usersErr } = await supabase.auth.admin.listUsers({ perPage: 1000 });
-    const allUsers = usersErr ? [] : (usersData?.users || []);
+    let allUsers = [];
+    try {
+      const { data: usersData, error: usersErr } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+      if (usersErr) {
+        console.log("⚠️ Could not list users via auth.admin:", usersErr.message);
+      } else {
+        allUsers = usersData?.users || [];
+      }
+    } catch (authErr) {
+      console.log("⚠️ auth.admin.listUsers() failed:", authErr.message);
+    }
 
-    // Activity log stats
+    // Activity log stats - get more records for better counting
     const { data: activityData } = await supabase
       .from("user_activity_log")
       .select("*")
       .order("created_at", { ascending: false })
-      .limit(500);
+      .limit(5000);
 
     const activities = activityData || [];
+
+    // Fallback: count unique users from activity log if auth.admin didn't return users
+    if (allUsers.length === 0 && activities.length > 0) {
+      const uniqueUserIds = new Set(activities.filter(a => a.user_id).map(a => a.user_id));
+      const uniqueEmails = new Set(activities.filter(a => a.email).map(a => a.email.toLowerCase()));
+      // Create synthetic user entries for the fallback count
+      const fallbackCount = Math.max(uniqueUserIds.size, uniqueEmails.size);
+      console.log(`📊 Using fallback user count from activity log: ${fallbackCount}`);
+      // We'll use the fallbackCount but keep allUsers empty (for the users list)
+      allUsers = Array.from(uniqueEmails).map((email, idx) => ({
+        id: `fallback-${idx}`,
+        email,
+        created_at: null,
+        last_sign_in_at: null,
+        email_confirmed_at: null,
+        app_metadata: { provider: 'unknown' },
+      }));
+    }
 
     // Code reviews count
     const { count: totalReviews } = await supabase
@@ -1028,12 +1075,40 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
     const last7d = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
     const last30d = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    const signups = activities.filter((a) => a.event_type === "signup");
+    // Count signups from activity log
+    const signupsFromActivity = activities.filter((a) => a.event_type === "signup");
     const logins = activities.filter((a) => a.event_type === "login");
 
-    const signupsToday = signups.filter((a) => new Date(a.created_at) >= today).length;
-    const signups7d = signups.filter((a) => new Date(a.created_at) >= last7d).length;
-    const signups30d = signups.filter((a) => new Date(a.created_at) >= last30d).length;
+    // Also count signups from user creation dates (for users who signed up before activity logging)
+    const signupsFromUsers = allUsers.filter((u) => u.created_at).map((u) => ({
+      created_at: u.created_at,
+      email: u.email,
+    }));
+
+    // Merge signups: use activity log if available, otherwise fall back to user creation dates
+    // De-duplicate by email to avoid counting the same user twice
+    const allSignupDates = new Map();
+    
+    // First add from user creation dates
+    signupsFromUsers.forEach((s) => {
+      if (s.email && s.created_at) {
+        allSignupDates.set(s.email.toLowerCase(), new Date(s.created_at));
+      }
+    });
+    
+    // Then add from activity log (these take precedence as they're more accurate)
+    signupsFromActivity.forEach((s) => {
+      if (s.email && s.created_at) {
+        allSignupDates.set(s.email.toLowerCase(), new Date(s.created_at));
+      }
+    });
+
+    // Convert back to array for counting
+    const signupDates = Array.from(allSignupDates.values());
+    
+    const signupsToday = signupDates.filter((d) => d >= today).length;
+    const signups7d = signupDates.filter((d) => d >= last7d).length;
+    const signups30d = signupDates.filter((d) => d >= last30d).length;
 
     const loginsToday = logins.filter((a) => new Date(a.created_at) >= today).length;
     const logins7d = logins.filter((a) => new Date(a.created_at) >= last7d).length;
