@@ -15,9 +15,20 @@ app.use(bodyParser.json());
 // Supabase Setup
 // ============================
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+const supabaseAnonKey = process.env.SUPABASE_KEY;
 
+// Use service key for admin operations (bypasses RLS)
+const supabaseKey = supabaseServiceKey || supabaseAnonKey;
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Log which key type is being used
+if (supabaseServiceKey) {
+  console.log("✅ Using SUPABASE_SERVICE_KEY (RLS bypass enabled)");
+} else {
+  console.log("⚠️ SUPABASE_SERVICE_KEY not set - using SUPABASE_KEY (RLS will apply!)");
+  console.log("⚠️ Admin dashboard may not show all data. Set SUPABASE_SERVICE_KEY for full access.");
+}
 
 function supabaseForUser(token) {
   return createClient(supabaseUrl, supabaseKey, {
@@ -508,13 +519,29 @@ app.get("/", (req, res) => {
 // ============================
 app.get("/api/public/stats", async (_req, res) => {
   try {
-    const { count: totalReviews } = await supabase
+    console.log("📊 Fetching public stats...");
+    
+    // Count all code reviews (issues detected)
+    const { count: totalReviews, error: reviewsErr } = await supabase
       .from("code_reviews")
       .select("id", { count: "exact", head: true });
+    
+    if (reviewsErr) {
+      console.log("⚠️ public/stats code_reviews error:", reviewsErr.message);
+    } else {
+      console.log(`📊 Total reviews: ${totalReviews}`);
+    }
 
-    const { count: totalRepos } = await supabase
+    // Count all repositories
+    const { count: totalRepos, error: reposErr } = await supabase
       .from("user_repositories")
       .select("id", { count: "exact", head: true });
+    
+    if (reposErr) {
+      console.log("⚠️ public/stats user_repositories error:", reposErr.message);
+    } else {
+      console.log(`📊 Total repos: ${totalRepos}`);
+    }
 
     // Try to get users from auth.admin
     let totalUsers = 0;
@@ -522,6 +549,9 @@ app.get("/api/public/stats", async (_req, res) => {
       const { data: usersData, error: usersErr } = await supabase.auth.admin.listUsers({ perPage: 1000 });
       if (!usersErr && usersData?.users) {
         totalUsers = usersData.users.length;
+        console.log(`📊 Total users from auth.admin: ${totalUsers}`);
+      } else if (usersErr) {
+        console.log("⚠️ public/stats auth.admin error:", usersErr.message);
       }
     } catch (authErr) {
       console.log("⚠️ public/stats: auth.admin.listUsers() failed:", authErr.message);
@@ -538,18 +568,74 @@ app.get("/api/public/stats", async (_req, res) => {
         const uniqueUserIds = new Set(activityData.filter(a => a.user_id).map(a => a.user_id));
         const uniqueEmails = new Set(activityData.filter(a => a.email).map(a => a.email.toLowerCase()));
         totalUsers = Math.max(uniqueUserIds.size, uniqueEmails.size);
+        console.log(`📊 Total users from activity fallback: ${totalUsers}`);
       }
     }
 
-    return res.json({
+    const stats = {
       totalReviews: totalReviews || 0,
       totalRepos: totalRepos || 0,
       totalUsers,
-    });
+    };
+    
+    console.log("📊 Public stats response:", stats);
+    return res.json(stats);
   } catch (err) {
     console.error("❌ Public stats error:", err);
     return res.json({ totalReviews: 0, totalRepos: 0, totalUsers: 0 });
   }
+});
+
+// ============================
+// Debug: Check Supabase connection and RLS status
+// ============================
+app.get("/api/debug/status", async (_req, res) => {
+  const status = {
+    hasServiceKey: !!process.env.SUPABASE_SERVICE_KEY,
+    hasAnonKey: !!process.env.SUPABASE_KEY,
+    hasSupabaseUrl: !!process.env.SUPABASE_URL,
+    keyType: process.env.SUPABASE_SERVICE_KEY ? "service_role" : "anon",
+    queries: {},
+  };
+
+  try {
+    // Test query on code_reviews
+    const { count: reviewCount, error: reviewErr } = await supabase
+      .from("code_reviews")
+      .select("id", { count: "exact", head: true });
+    status.queries.code_reviews = { count: reviewCount || 0, error: reviewErr?.message || null };
+
+    // Test query on user_repositories  
+    const { count: repoCount, error: repoErr } = await supabase
+      .from("user_repositories")
+      .select("id", { count: "exact", head: true });
+    status.queries.user_repositories = { count: repoCount || 0, error: repoErr?.message || null };
+
+    // Test query on user_activity_log
+    const { count: activityCount, error: activityErr } = await supabase
+      .from("user_activity_log")
+      .select("id", { count: "exact", head: true });
+    status.queries.user_activity_log = { count: activityCount || 0, error: activityErr?.message || null };
+
+    // Test auth.admin
+    try {
+      const { data: usersData, error: usersErr } = await supabase.auth.admin.listUsers({ perPage: 10 });
+      status.queries.auth_users = { count: usersData?.users?.length || 0, error: usersErr?.message || null };
+    } catch (authErr) {
+      status.queries.auth_users = { count: 0, error: authErr.message };
+    }
+
+    status.healthy = !reviewErr && !repoErr;
+    status.rlsIssue = (reviewCount === 0 && repoCount === 0) && !reviewErr && !repoErr;
+    
+    if (status.rlsIssue) {
+      status.recommendation = "Run supabase_rls_fix.sql in Supabase SQL Editor to fix RLS policies";
+    }
+  } catch (err) {
+    status.error = err.message;
+  }
+
+  return res.json(status);
 });
 
 // ============================

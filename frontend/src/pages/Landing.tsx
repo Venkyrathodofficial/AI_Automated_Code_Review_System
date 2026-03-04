@@ -126,19 +126,44 @@ const Landing = () => {
   const { user } = useAuth();
 
   // Fetch real platform stats
-  const [platformStats, setPlatformStats] = useState({ totalReviews: 0, totalRepos: 0, totalUsers: 0 });
+  const [platformStats, setPlatformStats] = useState({ totalReviews: 0, totalRepos: 0, totalUsers: 0, loaded: false });
   useEffect(() => {
     const BASE = import.meta.env.VITE_API_URL || "/api";
     fetch(`${BASE}/public/stats`)
       .then((r) => r.json())
-      .then((d) => setPlatformStats(d))
-      .catch(() => {});
+      .then((d) => {
+        console.log("📊 Platform stats loaded:", d);
+        setPlatformStats({ ...d, loaded: true });
+      })
+      .catch((err) => {
+        console.error("❌ Failed to load platform stats:", err);
+        setPlatformStats({ totalReviews: 0, totalRepos: 0, totalUsers: 0, loaded: true });
+      });
   }, []);
 
+  // Show real stats if loaded and > 0, otherwise show reasonable defaults
   const dynamicStats = [
-    { value: platformStats.totalReviews > 0 ? platformStats.totalReviews.toLocaleString() + "+" : "50K+", label: "Issues Detected", icon: Bug },
-    { value: platformStats.totalRepos > 0 ? platformStats.totalRepos.toLocaleString() + "+" : "10K+", label: "Repositories", icon: Github },
-    { value: platformStats.totalUsers > 0 ? platformStats.totalUsers.toLocaleString() + "+" : "5K+", label: "Developers", icon: Users },
+    { 
+      value: platformStats.loaded && platformStats.totalReviews > 0 
+        ? platformStats.totalReviews.toLocaleString() + "+" 
+        : (platformStats.loaded ? "0" : "..."), 
+      label: "Issues Detected", 
+      icon: Bug 
+    },
+    { 
+      value: platformStats.loaded && platformStats.totalRepos > 0 
+        ? platformStats.totalRepos.toLocaleString() + "+" 
+        : (platformStats.loaded ? "0" : "..."), 
+      label: "Repositories", 
+      icon: Github 
+    },
+    { 
+      value: platformStats.loaded && platformStats.totalUsers > 0 
+        ? platformStats.totalUsers.toLocaleString() + "+" 
+        : (platformStats.loaded ? "0" : "..."), 
+      label: "Developers", 
+      icon: Users 
+    },
     { value: "99.9%", label: "Uptime", icon: Globe },
   ];
 
