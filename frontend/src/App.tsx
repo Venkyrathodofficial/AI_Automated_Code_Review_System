@@ -12,6 +12,7 @@ import Repositories from "./pages/Repositories";
 import Issues from "./pages/Issues";
 import Settings from "./pages/Settings";
 import AdminDashboard from "./pages/AdminDashboard";
+import AdminLogin from "./pages/AdminLogin";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -26,6 +27,7 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/admin/login" element={<AdminLogin />} />
             <Route path="/dashboard" element={<ProtectedRoute><Index /></ProtectedRoute>} />
             <Route path="/repositories" element={<ProtectedRoute><Repositories /></ProtectedRoute>} />
             <Route path="/issues" element={<ProtectedRoute><Issues /></ProtectedRoute>} />

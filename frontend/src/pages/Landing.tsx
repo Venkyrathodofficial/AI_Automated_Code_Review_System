@@ -425,16 +425,26 @@ const Landing = () => {
 
       {/* ───── Footer ───── */}
       <footer className="border-t border-border bg-muted/30">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-10 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/80">
-              <ShieldCheck className="h-4 w-4 text-primary-foreground" />
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-10">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/80">
+                <ShieldCheck className="h-4 w-4 text-primary-foreground" />
+              </div>
+              <span className="text-sm font-bold">CodeAurora Sentinel AI</span>
             </div>
-            <span className="text-sm font-bold">CodeAurora Sentinel AI</span>
+            <div className="flex items-center gap-6">
+              <p className="text-xs text-muted-foreground">
+                &copy; {new Date().getFullYear()} CodeAurora. All rights reserved.
+              </p>
+              <Link
+                to="/admin/login"
+                className="text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+              >
+                Admin
+              </Link>
+            </div>
           </div>
-          <p className="text-xs text-muted-foreground">
-            &copy; {new Date().getFullYear()} CodeAurora. All rights reserved. Secured by Supabase.
-          </p>
         </div>
       </footer>
     </div>

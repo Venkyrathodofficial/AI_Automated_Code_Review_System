@@ -122,11 +122,18 @@ const AdminDashboard = () => {
           <Shield className="h-12 w-12 text-red-400 mx-auto mb-4" />
           <h2 className="text-lg font-bold text-foreground">Access Denied</h2>
           <p className="text-sm text-muted-foreground mt-2">You do not have admin privileges.</p>
-          <Link to="/dashboard">
-            <Button variant="outline" className="mt-4 rounded-xl gap-2">
-              <ArrowLeft className="h-4 w-4" /> Back to Dashboard
-            </Button>
-          </Link>
+          <div className="flex items-center gap-3 justify-center mt-4">
+            <Link to="/dashboard">
+              <Button variant="outline" className="rounded-xl gap-2">
+                <ArrowLeft className="h-4 w-4" /> User Dashboard
+              </Button>
+            </Link>
+            <Link to="/admin/login">
+              <Button className="rounded-xl gap-2 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white">
+                <Shield className="h-4 w-4" /> Admin Login
+              </Button>
+            </Link>
+          </div>
         </div>
       </div>
     );
