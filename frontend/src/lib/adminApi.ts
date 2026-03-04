@@ -64,6 +64,30 @@ export interface ActivityEntry {
   created_at: string;
 }
 
+export interface AdminRepository {
+  id: string;
+  user_id: string;
+  repo_name: string;
+  github_owner: string;
+  is_connected: boolean;
+  last_scan_at: string | null;
+  created_at: string;
+}
+
+export interface AdminIssue {
+  id: string;
+  user_id: string;
+  repo_name: string;
+  file_path: string;
+  issue_type: string;
+  severity: string;
+  status: string;
+  message: string;
+  line_number: number | null;
+  suggestion: string | null;
+  created_at: string;
+}
+
 export interface AdminDashboardData {
   totalUsers: number;
   totalReviews: number;
@@ -81,6 +105,8 @@ export interface AdminDashboardData {
   resolvedIssues: number;
   reviewsByDay: { date: string; count: number }[];
   users: AdminUser[];
+  repositories: AdminRepository[];
+  issues: AdminIssue[];
   recentActivity: ActivityEntry[];
   settings: AdminSettings;
 }

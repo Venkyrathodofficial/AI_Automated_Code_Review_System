@@ -1166,16 +1166,29 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
       console.log("⚠️ Error counting user_repositories:", reposErr.message);
     }
 
-    // Code reviews by severity
+    // Code reviews (all fields for admin view)
     const { data: allReviews, error: reviewsDataErr } = await supabase
       .from("code_reviews")
-      .select("severity, status, created_at");
+      .select("*")
+      .order("created_at", { ascending: false });
     
     if (reviewsDataErr) {
       console.log("⚠️ Error fetching code_reviews data:", reviewsDataErr.message);
     }
 
     const reviews = allReviews || [];
+    
+    // All repositories for admin view
+    const { data: allRepos, error: reposDataErr } = await supabase
+      .from("user_repositories")
+      .select("*")
+      .order("created_at", { ascending: false });
+    
+    if (reposDataErr) {
+      console.log("⚠️ Error fetching user_repositories data:", reposDataErr.message);
+    }
+    
+    const repositories = allRepos || [];
     
     // Log stats for debugging
     console.log(`📊 Admin Dashboard Stats: Users=${allUsers.length}, Repos=${totalRepos || 0}, Reviews=${totalReviews || 0}`);
@@ -1282,6 +1295,8 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
       resolvedIssues,
       reviewsByDay,
       users,
+      repositories,
+      issues: reviews,
       recentActivity: activities.slice(0, 50),
       settings: settings || {},
     });
