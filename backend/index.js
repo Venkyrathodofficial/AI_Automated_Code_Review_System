@@ -1036,16 +1036,26 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
 
     // Fallback: count unique users from activity log if auth.admin didn't return users
     if (allUsers.length === 0 && activities.length > 0) {
-      const uniqueUserIds = new Set(activities.filter(a => a.user_id).map(a => a.user_id));
-      const uniqueEmails = new Set(activities.filter(a => a.email).map(a => a.email.toLowerCase()));
-      // Create synthetic user entries for the fallback count
-      const fallbackCount = Math.max(uniqueUserIds.size, uniqueEmails.size);
+      // Build a map of email -> earliest activity date (as a proxy for signup date)
+      const userFirstActivity = new Map();
+      // Process in reverse order (oldest first) so we get earliest dates
+      [...activities].reverse().forEach((a) => {
+        if (a.email) {
+          const emailLower = a.email.toLowerCase();
+          if (!userFirstActivity.has(emailLower)) {
+            userFirstActivity.set(emailLower, a.created_at);
+          }
+        }
+      });
+      
+      const fallbackCount = userFirstActivity.size;
       console.log(`📊 Using fallback user count from activity log: ${fallbackCount}`);
-      // We'll use the fallbackCount but keep allUsers empty (for the users list)
-      allUsers = Array.from(uniqueEmails).map((email, idx) => ({
+      
+      // Create synthetic user entries with their first activity as created_at
+      allUsers = Array.from(userFirstActivity.entries()).map(([email, firstActivity], idx) => ({
         id: `fallback-${idx}`,
         email,
-        created_at: null,
+        created_at: firstActivity, // Use first activity as signup proxy
         last_sign_in_at: null,
         email_confirmed_at: null,
         app_metadata: { provider: 'unknown' },
@@ -1053,21 +1063,36 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
     }
 
     // Code reviews count
-    const { count: totalReviews } = await supabase
+    const { count: totalReviews, error: reviewsErr } = await supabase
       .from("code_reviews")
       .select("id", { count: "exact", head: true });
+    
+    if (reviewsErr) {
+      console.log("⚠️ Error counting code_reviews:", reviewsErr.message);
+    }
 
     // Repositories count
-    const { count: totalRepos } = await supabase
+    const { count: totalRepos, error: reposErr } = await supabase
       .from("user_repositories")
       .select("id", { count: "exact", head: true });
+    
+    if (reposErr) {
+      console.log("⚠️ Error counting user_repositories:", reposErr.message);
+    }
 
     // Code reviews by severity
-    const { data: allReviews } = await supabase
+    const { data: allReviews, error: reviewsDataErr } = await supabase
       .from("code_reviews")
       .select("severity, status, created_at");
+    
+    if (reviewsDataErr) {
+      console.log("⚠️ Error fetching code_reviews data:", reviewsDataErr.message);
+    }
 
     const reviews = allReviews || [];
+    
+    // Log stats for debugging
+    console.log(`📊 Admin Dashboard Stats: Users=${allUsers.length}, Repos=${totalRepos || 0}, Reviews=${totalReviews || 0}`);
 
     // Compute stats
     const now = new Date();
@@ -1084,12 +1109,14 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
       created_at: u.created_at,
       email: u.email,
     }));
+    
+    console.log(`📊 Signups: fromActivity=${signupsFromActivity.length}, fromUserCreation=${signupsFromUsers.length}`);
 
     // Merge signups: use activity log if available, otherwise fall back to user creation dates
     // De-duplicate by email to avoid counting the same user twice
     const allSignupDates = new Map();
     
-    // First add from user creation dates
+    // First add from user creation dates (treat each user as a signup)
     signupsFromUsers.forEach((s) => {
       if (s.email && s.created_at) {
         allSignupDates.set(s.email.toLowerCase(), new Date(s.created_at));
@@ -1102,6 +1129,8 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
         allSignupDates.set(s.email.toLowerCase(), new Date(s.created_at));
       }
     });
+    
+    console.log(`📊 Total unique signups merged: ${allSignupDates.size}`);
 
     // Convert back to array for counting
     const signupDates = Array.from(allSignupDates.values());
