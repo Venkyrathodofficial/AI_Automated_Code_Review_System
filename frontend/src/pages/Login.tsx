@@ -335,43 +335,21 @@ const Login = () => {
         transition={{ duration: 0.4 }}
         className="w-full max-w-4xl bg-card rounded-3xl shadow-2xl border border-border overflow-hidden"
       >
-        <div className="relative h-[620px] md:h-[650px]">
-          {/* Sliding Container */}
-          <AnimatePresence mode="wait">
-            {!isSignUp ? (
-              <motion.div
-                key="login"
-                initial={{ x: "100%", opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: "-100%", opacity: 0 }}
-                transition={{ type: "spring", stiffness: 100, damping: 20, mass: 0.8 }}
-                className="absolute inset-0 flex flex-col md:flex-row"
-              >
-                <div className="flex-1 order-2 md:order-1 bg-card">
-                  <LoginForm />
-                </div>
-                <div className="h-32 md:h-auto md:flex-1 order-1 md:order-2 p-2">
-                  <DecorativePanel title="Welcome back!" />
-                </div>
-              </motion.div>
+        <div className="relative h-[620px] md:h-[650px] flex flex-col md:flex-row">
+          {/* Decorative Panel stays mounted */}
+          <div className="h-32 md:h-auto md:flex-1 p-2 flex items-stretch">
+            {isSignUp ? (
+              <DecorativePanel title="Let's Get Started!" />
             ) : (
-              <motion.div
-                key="signup"
-                initial={{ x: "-100%", opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: "100%", opacity: 0 }}
-                transition={{ type: "spring", stiffness: 100, damping: 20, mass: 0.8 }}
-                className="absolute inset-0 flex flex-col md:flex-row"
-              >
-                <div className="h-32 md:h-auto md:flex-1 order-1 p-2">
-                  <DecorativePanel title="Let's Get Started!" />
-                </div>
-                <div className="flex-1 order-2 bg-card">
-                  <SignUpForm />
-                </div>
-              </motion.div>
+              <DecorativePanel title="Welcome back!" />
             )}
-          </AnimatePresence>
+          </div>
+          {/* Form container stays mounted, only content switches */}
+          <div className="flex-1 bg-card flex items-stretch">
+            <div className="w-full">
+              {isSignUp ? <SignUpForm /> : <LoginForm />}
+            </div>
+          </div>
         </div>
       </motion.div>
 
