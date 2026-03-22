@@ -1,3 +1,24 @@
+// ============================
+// API: Fix Code with AI
+// ============================
+const { fixCodeWithAI } = require("./fixService");
+
+app.post("/api/fix-code", async (req, res) => {
+  try {
+    const { code, issueDescription } = req.body;
+    if (!code || !issueDescription) {
+      return res.status(400).json({ error: "Missing code or issueDescription" });
+    }
+    const result = await fixCodeWithAI(code, issueDescription);
+    if (!result) {
+      return res.status(500).json({ error: "AI failed to return a fix" });
+    }
+    return res.json(result);
+  } catch (err) {
+    console.error("/api/fix-code error:", err.message);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 require("dotenv").config();
 
 const express = require("express");
@@ -903,6 +924,12 @@ app.patch("/api/reviews/:id", authMiddleware, async (req, res) => {
 // ============================
 // GitHub Webhook Route (per-user)
 // ============================
+
+
+const { analyzeCode } = require("./aiService");
+const { calculateHealthScore } = require("./helpers");
+const { sendEmailAlert, sendToNotion } = require("./alertService");
+
 app.post("/webhook/github/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
@@ -953,10 +980,65 @@ app.post("/webhook/github/:userId", async (req, res) => {
     const addedFiles = head.added || [];
     const allFiles = [...new Set([...modifiedFiles, ...addedFiles])];
 
-    if (allFiles.length > 0) {
-      analyzeChangedFiles(repository, userId, allFiles, head.id, head.message).catch((err) => {
-        console.error("❌ Webhook analysis error:", err.message);
-      });
+    if (allFiles.length === 0) return;
+
+    // For each file, fetch content, run Claude, and store result
+    for (const filePath of allFiles.slice(0, 10)) {
+      try {
+        const code = await fetchFileContent(repository, filePath, head.id);
+        if (!code) continue;
+
+        const aiResult = await analyzeCode(code);
+        if (!aiResult || typeof aiResult !== "object") {
+          console.error("AI returned invalid or no result for", filePath);
+          continue;
+        }
+
+        const {
+          issue_title = "AI Review",
+          issue_description = "No description",
+          severity = "Low",
+          suggestion = "",
+          optimization_tip = "",
+          risk_score = 1,
+          code_health_score
+        } = aiResult;
+
+        const healthScore = typeof code_health_score === "number"
+          ? code_health_score
+          : calculateHealthScore(Number(risk_score) || 1);
+
+        const issueData = {
+          user_id: userId,
+          repository_name: repository,
+          file_name: filePath,
+          issue_title,
+          issue_description,
+          severity,
+          suggestion,
+          optimization_tip,
+          risk_score: Number(risk_score) || 1,
+          code_health_score: healthScore,
+          commit_id: head.id || "unknown",
+          commit_message: head.message || "No message",
+          status: "Open",
+        };
+
+        // Insert into Supabase
+        const { error } = await supabase.from("code_reviews").insert([issueData]);
+        if (error) {
+          console.error("Supabase insert error:", error.message);
+        }
+
+        // Alert system for critical issues
+        if (severity === "Critical") {
+          console.log(`[ALERT] Triggering alerts for critical issue in ${filePath}`);
+          sendEmailAlert(issueData);
+          sendToNotion(issueData);
+        }
+      } catch (err) {
+        console.error(`AI review error for ${filePath}:`, err.message);
+      }
     }
   } catch (err) {
     console.error("❌ Webhook Error:", err);
@@ -965,6 +1047,7 @@ app.post("/webhook/github/:userId", async (req, res) => {
 });
 
 // Legacy webhook (backwards compat)
+
 app.post("/webhook/github", async (req, res) => {
   try {
     const repository = req.body.repository?.full_name || "Unknown Repo";
@@ -982,15 +1065,68 @@ app.post("/webhook/github", async (req, res) => {
     // Respond immediately
     res.status(200).send("OK");
 
-    if (userId) {
-      const modifiedFiles = head.modified || [];
-      const addedFiles = head.added || [];
-      const allFiles = [...new Set([...modifiedFiles, ...addedFiles])];
+    if (!userId) return;
 
-      if (allFiles.length > 0) {
-        analyzeChangedFiles(repository, userId, allFiles, head.id, head.message).catch((err) => {
-          console.error("❌ Legacy webhook analysis error:", err.message);
-        });
+    const modifiedFiles = head.modified || [];
+    const addedFiles = head.added || [];
+    const allFiles = [...new Set([...modifiedFiles, ...addedFiles])];
+
+    if (allFiles.length === 0) return;
+
+    for (const filePath of allFiles.slice(0, 10)) {
+      try {
+        const code = await fetchFileContent(repository, filePath, head.id);
+        if (!code) continue;
+
+        const aiResult = await analyzeCode(code);
+        if (!aiResult || typeof aiResult !== "object") {
+          console.error("AI returned invalid or no result for", filePath);
+          continue;
+        }
+
+        const {
+          issue_title = "AI Review",
+          issue_description = "No description",
+          severity = "Low",
+          suggestion = "",
+          optimization_tip = "",
+          risk_score = 1,
+          code_health_score
+        } = aiResult;
+
+        const healthScore = typeof code_health_score === "number"
+          ? code_health_score
+          : calculateHealthScore(Number(risk_score) || 1);
+
+        const issueData = {
+          user_id: userId,
+          repository_name: repository,
+          file_name: filePath,
+          issue_title,
+          issue_description,
+          severity,
+          suggestion,
+          optimization_tip,
+          risk_score: Number(risk_score) || 1,
+          code_health_score: healthScore,
+          commit_id: head.id || "unknown",
+          commit_message: head.message || "No message",
+          status: "Open",
+        };
+
+        const { error } = await supabase.from("code_reviews").insert([issueData]);
+        if (error) {
+          console.error("Supabase insert error:", error.message);
+        }
+
+        // Alert system for critical issues
+        if (severity === "Critical") {
+          console.log(`[ALERT] Triggering alerts for critical issue in ${filePath}`);
+          sendEmailAlert(issueData);
+          sendToNotion(issueData);
+        }
+      } catch (err) {
+        console.error(`AI review error for ${filePath}:`, err.message);
       }
     }
   } catch (err) {

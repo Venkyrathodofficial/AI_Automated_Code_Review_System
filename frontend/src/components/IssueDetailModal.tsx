@@ -7,6 +7,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Issue } from "@/data/mockData";
 import { GitCommit, Lightbulb, Wrench } from "lucide-react";
+import { FixCodeButton } from "./FixCodeButton";
+import { OriginalCodeFetcher } from "./OriginalCodeFetcher";
+import { useState } from "react";
 
 interface Props {
   issue: Issue | null;
@@ -20,6 +23,8 @@ const severityColor: Record<string, string> = {
 };
 
 export function IssueDetailModal({ issue, onClose }: Props) {
+  const [originalCode, setOriginalCode] = useState("");
+  const [showFixModal, setShowFixModal] = useState(false);
   if (!issue) return null;
 
   return (
@@ -27,7 +32,7 @@ export function IssueDetailModal({ issue, onClose }: Props) {
       <DialogContent className="sm:max-w-lg bg-card border-border rounded-2xl">
         <DialogHeader>
           <div className="flex items-center gap-2">
-            <Badge className={`text-[10px] font-semibold uppercase rounded-lg px-2 py-0.5 ${severityColor[issue.severity]}`}>
+            <Badge className={`text-[10px] font-semibold uppercase rounded-lg px-2 py-0.5 ${severityColor[issue.severity]}`}> 
               {issue.severity}
             </Badge>
             <Badge className={`text-[10px] font-semibold capitalize rounded-lg px-2 py-0.5 ${issue.status === "open" ? "bg-red-50 text-red-600 border-0 dark:bg-red-900/20 dark:text-red-400" : "bg-emerald-50 text-emerald-600 border-0 dark:bg-emerald-900/20 dark:text-emerald-400"}`}>
@@ -80,6 +85,21 @@ export function IssueDetailModal({ issue, onClose }: Props) {
             <span><span className="font-bold text-card-foreground">Repo:</span> {issue.repository}</span>
             <span><span className="font-bold text-card-foreground">File:</span> {issue.fileName}</span>
           </div>
+
+          {/* Fix Code with AI button and modal, only if open */}
+          {issue.status === "open" && (
+            <div className="pt-4 border-t border-border">
+              {originalCode ? (
+                <FixCodeButton
+                  fileName={issue.fileName}
+                  originalCode={originalCode}
+                  issueDescription={issue.description}
+                />
+              ) : (
+                <OriginalCodeFetcher fileName={issue.fileName} onCodeFetched={setOriginalCode} />
+              )}
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
