@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useGithubAuth } from "@/hooks/useGithubAuth";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +22,33 @@ export function CodeFixModal({ open, onClose, fileName, originalCode, issueDescr
   const [explanation, setExplanation] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [commitLoading, setCommitLoading] = useState(false);
+  const [commitSuccess, setCommitSuccess] = useState("");
+  const { token, setToken, repo, setRepo, branch, setBranch, connectGithub } = useGithubAuth();
+  const handleCommit = async () => {
+    setCommitLoading(true);
+    setCommitSuccess("");
+    setError("");
+    try {
+      if (!repo || !token) {
+        setError("Please enter your GitHub repo and token.");
+        setCommitLoading(false);
+        return;
+      }
+      const res = await fetch("/api/commit-fix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName, improvedCode, repo, branch, token }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to commit code");
+      setCommitSuccess("Code committed to GitHub successfully!");
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setCommitLoading(false);
+    }
+  };
 
   const handleFix = async () => {
     setLoading(true);
@@ -73,6 +101,35 @@ export function CodeFixModal({ open, onClose, fileName, originalCode, issueDescr
               <div>
                 <p className="font-semibold mb-1">AI Explanation</p>
                 <Textarea value={explanation} readOnly rows={3} className="font-mono text-xs" />
+              </div>
+              <div className="pt-4 space-y-2">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="GitHub repo (user/repo)"
+                    value={repo}
+                    onChange={e => setRepo(e.target.value)}
+                    className="border rounded px-2 py-1 text-xs flex-1"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Branch"
+                    value={branch}
+                    onChange={e => setBranch(e.target.value)}
+                    className="border rounded px-2 py-1 text-xs w-24"
+                  />
+                </div>
+                <input
+                  type="password"
+                  placeholder="GitHub token"
+                  value={token || ""}
+                  onChange={e => setToken(e.target.value)}
+                  className="border rounded px-2 py-1 text-xs w-full"
+                />
+                <Button onClick={handleCommit} disabled={commitLoading} className="w-full" variant="default">
+                  {commitLoading ? "Committing..." : "Commit Fix to GitHub"}
+                </Button>
+                {commitSuccess && <p className="text-green-600 text-sm mt-2">{commitSuccess}</p>}
               </div>
             </>
           )}

@@ -47,6 +47,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAdminDashboard, useUpdateAdminSettings } from "@/hooks/useAdmin";
+import { useAuth } from "@/hooks/useAuth";
 import { AdminRepository, AdminIssue, AdminUser, ActivityEntry } from "@/lib/adminApi";
 import { formatDistanceToNow, format } from "date-fns";
 
@@ -1211,6 +1212,7 @@ const AdminDashboard = () => {
   const { data, isLoading, error } = useAdminDashboard();
   const updateSettings = useUpdateAdminSettings();
   const [activeView, setActiveView] = useState<ActiveView>("dashboard");
+  const { signOut } = useAuth();
 
   if (isLoading) {
     return (
@@ -1294,6 +1296,13 @@ const AdminDashboard = () => {
                 <Bell className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                 <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
               </button>
+              <Button
+                variant="outline"
+                className="gap-2 rounded-xl"
+                onClick={async () => { await signOut(); window.location.href = "/admin/login"; }}
+              >
+                <Power className="h-4 w-4" /> Logout
+              </Button>
             </div>
           </div>
         </header>
