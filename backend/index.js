@@ -33,6 +33,69 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // ============================
+// GitHub OAuth Endpoints
+// ============================
+const CLIENT_ID = process.env.GITHUB_CLIENT_ID;
+const CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
+const FRONTEND_URL = 'https://codeaurorasentinel.vercel.app'; // Update if needed
+
+// Step 1: Redirect to GitHub
+app.get('/api/auth/github', (req, res) => {
+  const redirectUri = `${FRONTEND_URL}/api/auth/github/callback`;
+  res.redirect(`https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&redirect_uri=${redirectUri}&scope=repo`);
+});
+
+// Step 2: Handle callback and exchange code for token
+app.get('/api/auth/github/callback', async (req, res) => {
+  const code = req.query.code;
+  try {
+    // Exchange code for access token
+    const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+        code,
+        redirect_uri: `${FRONTEND_URL}/api/auth/github/callback`,
+      }),
+    });
+    const tokenData = await tokenRes.json();
+    const accessToken = tokenData.access_token;
+    if (!accessToken) {
+      return res.status(400).send('GitHub authentication failed: No access token');
+    }
+
+    // Get user info from GitHub
+    const userRes = await fetch('https://api.github.com/user', {
+      headers: { Authorization: `token ${accessToken}` }
+    });
+    const userData = await userRes.json();
+    if (!userData.id) {
+      return res.status(400).send('GitHub authentication failed: No user info');
+    }
+
+    // Find the logged-in Supabase user (assume frontend passes supabase token as ?sb_token=...)
+    const sbToken = req.query.sb_token;
+    if (!sbToken) {
+      return res.status(400).send('Missing Supabase session token');
+    }
+    const { data: { user }, error } = await supabase.auth.getUser(sbToken);
+    if (error || !user) {
+      return res.status(401).send('Invalid Supabase session');
+    }
+
+    // Store GitHub token in profiles table
+    await supabase.from('profiles').upsert({ id: user.id, github_token: accessToken, updated_at: new Date().toISOString() });
+
+    // Redirect to frontend with success
+    res.redirect(`${FRONTEND_URL}/settings?github=connected`);
+  } catch (err) {
+    res.status(500).send('GitHub authentication failed');
+  }
+});
+
+// ============================
 // Supabase Setup
 // ============================
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -83,16 +146,18 @@ async function authMiddleware(req, res, next) {
 // GitHub API helper
 // ============================
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || "";
-function ghHeaders() {
+// Accepts an optional token (per-user), falls back to global token
+function ghHeaders(userToken) {
   const h = { Accept: "application/vnd.github.v3+json", "User-Agent": "AI-Code-Review-Bot" };
-  if (GITHUB_TOKEN) h.Authorization = `token ${GITHUB_TOKEN}`;
+  if (userToken) h.Authorization = `token ${userToken}`;
+  else if (GITHUB_TOKEN) h.Authorization = `token ${GITHUB_TOKEN}`;
   return h;
 }
 
 /** Fetch the file tree from a GitHub repo (default branch) */
-async function fetchRepoTree(repoFullName) {
+async function fetchRepoTree(repoFullName, userToken) {
   // Get default branch
-  const repoRes = await fetch(`https://api.github.com/repos/${repoFullName}`, { headers: ghHeaders() });
+  const repoRes = await fetch(`https://api.github.com/repos/${repoFullName}`, { headers: ghHeaders(userToken) });
   if (!repoRes.ok) throw new Error(`GitHub API error: ${repoRes.status}`);
   const repoData = await repoRes.json();
   const branch = repoData.default_branch || "main";
@@ -100,7 +165,7 @@ async function fetchRepoTree(repoFullName) {
   // Get full tree recursively
   const treeRes = await fetch(
     `https://api.github.com/repos/${repoFullName}/git/trees/${branch}?recursive=1`,
-    { headers: ghHeaders() }
+    { headers: ghHeaders(userToken) }
   );
   if (!treeRes.ok) throw new Error(`GitHub tree error: ${treeRes.status}`);
   const treeData = await treeRes.json();
@@ -122,9 +187,9 @@ async function fetchRepoTree(repoFullName) {
 }
 
 /** Fetch file content from GitHub */
-async function fetchFileContent(repoFullName, filePath, ref) {
+async function fetchFileContent(repoFullName, filePath, ref, userToken) {
   const url = `https://api.github.com/repos/${repoFullName}/contents/${encodeURIComponent(filePath)}${ref ? `?ref=${ref}` : ""}`;
-  const res = await fetch(url, { headers: ghHeaders() });
+  const res = await fetch(url, { headers: ghHeaders(userToken) });
   if (!res.ok) return null;
   const data = await res.json();
   if (data.encoding === "base64" && data.content) {
@@ -359,11 +424,17 @@ function analyzeFile(filePath, content) {
 
 /** Scan an entire repo: fetch files and analyze each one */
 async function scanRepository(repoFullName, userId, ref) {
+  // Fetch user's GitHub token from profiles
+  let userToken = null;
+  try {
+    const { data: profile } = await supabase.from('profiles').select('github_token').eq('id', userId).single();
+    if (profile && profile.github_token) userToken = profile.github_token;
+  } catch {}
   console.log(`🔍 Starting full scan of ${repoFullName} for user ${userId}`);
 
   let files;
   try {
-    files = await fetchRepoTree(repoFullName);
+    files = await fetchRepoTree(repoFullName, userToken);
   } catch (err) {
     console.error(`   ❌ Cannot access repo ${repoFullName}:`, err.message);
     // Record error so user sees it on the dashboard
@@ -392,7 +463,7 @@ async function scanRepository(repoFullName, userId, ref) {
 
   for (const file of filesToScan) {
     try {
-      const content = await fetchFileContent(repoFullName, file.path, ref);
+      const content = await fetchFileContent(repoFullName, file.path, ref, userToken);
       if (!content) continue;
 
       const fileIssues = analyzeFile(file.path, content);
@@ -474,7 +545,7 @@ async function analyzeChangedFiles(repoFullName, userId, filePaths, commitId, co
 
   for (const filePath of codeFiles.slice(0, 20)) {
     try {
-      const content = await fetchFileContent(repoFullName, filePath, commitId);
+      const content = await fetchFileContent(repoFullName, filePath, commitId, userToken);
       if (!content) continue;
 
       const fileIssues = analyzeFile(filePath, content);
@@ -768,7 +839,13 @@ app.post("/api/repositories/connect", authMiddleware, async (req, res) => {
     }
 
     // Verify the repo is accessible on GitHub before connecting
-    const checkRes = await fetch(`https://api.github.com/repos/${repoFullName.trim()}`, { headers: ghHeaders() });
+    // Use user's token if available
+    let userToken = null;
+    try {
+      const { data: profile } = await supabase.from('profiles').select('github_token').eq('id', req.user.id).single();
+      if (profile && profile.github_token) userToken = profile.github_token;
+    } catch {}
+    const checkRes = await fetch(`https://api.github.com/repos/${repoFullName.trim()}`, { headers: ghHeaders(userToken) });
     if (checkRes.status === 404) {
       return res.status(400).json({
         error: `Repository "${repoFullName}" not found on GitHub. It may be private or the name may be incorrect.${!GITHUB_TOKEN ? " For private repos, add a GITHUB_TOKEN to the backend environment." : ""}`,

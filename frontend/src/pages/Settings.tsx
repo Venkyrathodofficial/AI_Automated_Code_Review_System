@@ -16,6 +16,28 @@ import { supabase } from "@/lib/supabase";
 
 const SettingsPage = () => {
   const { user } = useAuth();
+  const [githubConnected, setGithubConnected] = useState(false);
+  const [checkingGithub, setCheckingGithub] = useState(true);
+    // Check if user is connected to GitHub
+    useEffect(() => {
+      const checkGithub = async () => {
+        setCheckingGithub(true);
+        if (!user) {
+          setGithubConnected(false);
+          setCheckingGithub(false);
+          return;
+        }
+        // Query the profiles table for github_token
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('github_token')
+          .eq('id', user.id)
+          .single();
+        setGithubConnected(!!(data && data.github_token));
+        setCheckingGithub(false);
+      };
+      checkGithub();
+    }, [user]);
   const [emailNotif, setEmailNotif] = useState(true);
   const [slackNotif, setSlackNotif] = useState(false);
   const [criticalOnly, setCriticalOnly] = useState(false);
@@ -182,35 +204,75 @@ const SettingsPage = () => {
               {/* Integrations Tab */}
               <TabsContent value="integrations">
                 <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-                  {[
-                    { name: "GitHub", desc: "Automatically review commits and pull requests", icon: GitFork, connected: true },
-                    { name: "GitLab", desc: "Connect your GitLab repositories", icon: Globe, connected: false },
-                    { name: "Slack", desc: "Send notifications to Slack channels", icon: Smartphone, connected: false },
-                  ].map((integration) => (
-                    <div key={integration.name} className="rounded-2xl border border-border bg-card p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:shadow-md transition-all">
-                      <div className="flex items-center gap-4">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
-                          <integration.icon className="h-5 w-5 text-primary" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-bold text-card-foreground">{integration.name}</p>
-                          <p className="text-xs text-muted-foreground">{integration.desc}</p>
-                        </div>
+                  {/* GitHub Integration */}
+                  <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:shadow-md transition-all">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
+                        <GitFork className="h-5 w-5 text-primary" />
                       </div>
-                        <Button
-                          variant={integration.connected ? "outline" : "default"}
-                          size="sm"
-                          className={`text-xs h-9 w-full sm:w-auto rounded-xl ${integration.connected ? "border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:border-emerald-800 dark:text-emerald-400 dark:bg-emerald-900/20" : ""}`}
-                        >
-                        {integration.connected ? (
-                          <>
-                            <Check className="h-3.5 w-3.5 mr-1" />
-                            Connected
-                          </>
-                        ) : "Connect"}
-                      </Button>
+                      <div>
+                        <p className="text-sm font-bold text-card-foreground">GitHub</p>
+                        <p className="text-xs text-muted-foreground">Automatically review commits and pull requests</p>
+                      </div>
                     </div>
-                  ))}
+                    <Button
+                      variant={githubConnected ? "outline" : "default"}
+                      size="sm"
+                      className={`text-xs h-9 w-full sm:w-auto rounded-xl ${githubConnected ? "border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:border-emerald-800 dark:text-emerald-400 dark:bg-emerald-900/20" : ""}`}
+                      disabled={checkingGithub}
+                      onClick={async () => {
+                        if (!githubConnected && user) {
+                          // Start OAuth flow, pass Supabase session token
+                          const session = await supabase.auth.getSession();
+                          const sb_token = session.data.session?.access_token;
+                          if (sb_token) {
+                            window.location.href = `/api/auth/github?sb_token=${sb_token}`;
+                          } else {
+                            alert("Could not get session token. Please re-login.");
+                          }
+                        }
+                      }}
+                    >
+                      {checkingGithub ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                      ) : githubConnected ? (
+                        <>
+                          <Check className="h-3.5 w-3.5 mr-1" />
+                          Connected
+                        </>
+                      ) : "Connect"}
+                    </Button>
+                  </div>
+                  {/* GitLab Integration (placeholder) */}
+                  <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:shadow-md transition-all">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
+                        <Globe className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-card-foreground">GitLab</p>
+                        <p className="text-xs text-muted-foreground">Connect your GitLab repositories</p>
+                      </div>
+                    </div>
+                    <Button variant="default" size="sm" className="text-xs h-9 w-full sm:w-auto rounded-xl" disabled>
+                      Connect
+                    </Button>
+                  </div>
+                  {/* Slack Integration (placeholder) */}
+                  <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:shadow-md transition-all">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
+                        <Smartphone className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-card-foreground">Slack</p>
+                        <p className="text-xs text-muted-foreground">Send notifications to Slack channels</p>
+                      </div>
+                    </div>
+                    <Button variant="default" size="sm" className="text-xs h-9 w-full sm:w-auto rounded-xl" disabled>
+                      Connect
+                    </Button>
+                  </div>
                 </motion.div>
               </TabsContent>
 
