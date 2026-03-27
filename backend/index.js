@@ -1,3 +1,16 @@
+require("dotenv").config();
+
+const express = require("express");
+const bodyParser = require("body-parser");
+const cors = require("cors");
+const crypto = require("crypto");
+const fetch = require("node-fetch");
+const { createClient } = require("@supabase/supabase-js");
+
+const app = express();
+app.use(cors());
+app.use(bodyParser.json());
+
 // ============================
 // API: Fix Code with AI
 // ============================
@@ -19,18 +32,6 @@ app.post("/api/fix-code", async (req, res) => {
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
-require("dotenv").config();
-
-const express = require("express");
-const bodyParser = require("body-parser");
-const cors = require("cors");
-const crypto = require("crypto");
-const fetch = require("node-fetch");
-const { createClient } = require("@supabase/supabase-js");
-
-const app = express();
-app.use(cors());
-app.use(bodyParser.json());
 
 // ============================
 // GitHub OAuth Endpoints
