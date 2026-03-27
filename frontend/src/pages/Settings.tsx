@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { TopNav } from "@/components/TopNav";
@@ -11,8 +11,12 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
+  const [showGithubModal, setShowGithubModal] = useState(false);
+  const [githubError, setGithubError] = useState("");
+  const popupRef = useRef<Window | null>(null);
 
 const SettingsPage = () => {
   const { user } = useAuth();
@@ -220,18 +224,7 @@ const SettingsPage = () => {
                       size="sm"
                       className={`text-xs h-9 w-full sm:w-auto rounded-xl ${githubConnected ? "border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:border-emerald-800 dark:text-emerald-400 dark:bg-emerald-900/20" : ""}`}
                       disabled={checkingGithub}
-                      onClick={async () => {
-                        if (!githubConnected && user) {
-                          // Start OAuth flow, pass Supabase session token
-                          const session = await supabase.auth.getSession();
-                          const sb_token = session.data.session?.access_token;
-                          if (sb_token) {
-                            window.location.href = "https://ai-automated-code-review-system.onrender.com/api/auth/github?sb_token=" + sb_token;
-                          } else {
-                            alert("Could not get session token. Please re-login.");
-                          }
-                        }
-                      }}
+                      onClick={() => setShowGithubModal(true)}
                     >
                       {checkingGithub ? (
                         <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
@@ -242,6 +235,72 @@ const SettingsPage = () => {
                         </>
                       ) : "Connect"}
                     </Button>
+
+                  {/* GitHub Integration Modal */}
+                  <Dialog open={showGithubModal} onOpenChange={setShowGithubModal}>
+                    <DialogContent className="max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Connect GitHub</DialogTitle>
+                        <DialogDescription>
+                          Connect your GitHub account to enable private repo scanning and real-time code review.
+                        </DialogDescription>
+                      </DialogHeader>
+                      {githubConnected ? (
+                        <div className="flex flex-col items-center gap-4 py-4">
+                          <Check className="h-8 w-8 text-emerald-600" />
+                          <p className="text-sm text-emerald-700">GitHub is already connected!</p>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-4 py-4">
+                          <Button
+                            className="w-full"
+                            onClick={async () => {
+                              setGithubError("");
+                              if (!user) {
+                                setGithubError("You must be logged in.");
+                                return;
+                              }
+                              const session = await supabase.auth.getSession();
+                              const sb_token = session.data.session?.access_token;
+                              if (!sb_token) {
+                                setGithubError("Could not get session token. Please re-login.");
+                                return;
+                              }
+                              // Open popup for OAuth
+                              const popup = window.open(
+                                `https://ai-automated-code-review-system.onrender.com/api/auth/github?sb_token=${sb_token}`,
+                                "github-oauth",
+                                "width=600,height=700"
+                              );
+                              popupRef.current = popup;
+                              // Poll for connection status
+                              const poll = setInterval(async () => {
+                                if (popup && popup.closed) {
+                                  clearInterval(poll);
+                                  setShowGithubModal(false);
+                                  setCheckingGithub(true);
+                                  // Re-check connection status
+                                  const { data } = await supabase
+                                    .from('profiles')
+                                    .select('github_token')
+                                    .eq('id', user.id)
+                                    .single();
+                                  setGithubConnected(!!(data && data.github_token));
+                                  setCheckingGithub(false);
+                                }
+                              }, 1000);
+                            }}
+                          >
+                            Connect with GitHub
+                          </Button>
+                          {githubError && <p className="text-red-600 text-xs text-center">{githubError}</p>}
+                        </div>
+                      )}
+                      <DialogClose asChild>
+                        <Button variant="outline" className="w-full mt-2">Close</Button>
+                      </DialogClose>
+                    </DialogContent>
+                  </Dialog>
                   </div>
                   {/* GitLab Integration (placeholder) */}
                   <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:shadow-md transition-all">
