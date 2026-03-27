@@ -226,7 +226,7 @@ const SettingsPage = () => {
                           const session = await supabase.auth.getSession();
                           const sb_token = session.data.session?.access_token;
                           if (sb_token) {
-                            window.location.href = `/api/auth/github?sb_token=${sb_token}`;
+                            window.location.href = "https://ai-automated-code-review-system.onrender.com/api/auth/github?sb_token=" + sb_token;
                           } else {
                             alert("Could not get session token. Please re-login.");
                           }
