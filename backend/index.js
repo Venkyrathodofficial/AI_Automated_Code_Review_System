@@ -9,7 +9,59 @@ const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 app.use(cors());
-app.use(bodyParser.json());
+
+function rawBodySaver(req, _res, buf) {
+  if (buf && buf.length) req.rawBody = buf.toString("utf8");
+}
+
+app.use(bodyParser.json({ verify: rawBodySaver }));
+app.use(bodyParser.urlencoded({ extended: true, verify: rawBodySaver }));
+
+function getGithubPayload(req) {
+  let payload = req.body;
+  if (payload && typeof payload.payload === "string") {
+    try {
+      payload = JSON.parse(payload.payload);
+    } catch {
+      payload = {};
+    }
+  }
+  if (!payload || typeof payload !== "object") return {};
+  return payload;
+}
+
+function verifyGithubSignature(req, secret) {
+  const sig = req.headers["x-hub-signature-256"];
+  if (!sig || !secret) return true;
+  if (!req.rawBody) return false;
+
+  const expected = `sha256=${crypto
+    .createHmac("sha256", secret)
+    .update(req.rawBody)
+    .digest("hex")}`;
+
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+function extractChangedFiles(payload) {
+  const changed = new Set();
+
+  const commits = Array.isArray(payload.commits) ? payload.commits : [];
+  for (const commit of commits) {
+    for (const filePath of commit.added || []) changed.add(filePath);
+    for (const filePath of commit.modified || []) changed.add(filePath);
+  }
+
+  if (changed.size === 0 && payload.head_commit) {
+    for (const filePath of payload.head_commit.added || []) changed.add(filePath);
+    for (const filePath of payload.head_commit.modified || []) changed.add(filePath);
+  }
+
+  return [...changed];
+}
 
 // ============================
 // API: Fix Code with AI
@@ -189,7 +241,11 @@ async function fetchRepoTree(repoFullName, userToken) {
 
 /** Fetch file content from GitHub */
 async function fetchFileContent(repoFullName, filePath, ref, userToken) {
-  const url = `https://api.github.com/repos/${repoFullName}/contents/${encodeURIComponent(filePath)}${ref ? `?ref=${ref}` : ""}`;
+  const encodedPath = filePath
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  const url = `https://api.github.com/repos/${repoFullName}/contents/${encodedPath}${ref ? `?ref=${ref}` : ""}`;
   const res = await fetch(url, { headers: ghHeaders(userToken) });
   if (!res.ok) return null;
   const data = await res.json();
@@ -524,6 +580,16 @@ async function scanRepository(repoFullName, userId, ref) {
 /** Analyze only specific files (for webhook pushes) */
 async function analyzeChangedFiles(repoFullName, userId, filePaths, commitId, commitMessage) {
   console.log(`🔍 Analyzing ${filePaths.length} changed files in ${repoFullName}`);
+
+  let userToken = null;
+  try {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("github_token")
+      .eq("id", userId)
+      .single();
+    if (profile && profile.github_token) userToken = profile.github_token;
+  } catch {}
 
   const codeExtensions = new Set([
     ".js", ".ts", ".jsx", ".tsx", ".py", ".java", ".rb", ".go", ".rs",
@@ -1002,26 +1068,21 @@ app.patch("/api/reviews/:id", authMiddleware, async (req, res) => {
 // ============================
 // GitHub Webhook Route (per-user)
 // ============================
-
-
-const { analyzeCode } = require("./aiService");
-const { calculateHealthScore } = require("./helpers");
-const { sendEmailAlert, sendToNotion } = require("./alertService");
-
 app.post("/webhook/github/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
     const event = req.headers["x-github-event"] || "unknown";
+    const payload = getGithubPayload(req);
     console.log(`✅ Webhook received for user ${userId} — event: ${event}`);
 
     // Handle ping event (sent when webhook is first created)
     if (event === "ping") {
-      console.log(`   🏓 Ping from GitHub — zen: "${req.body.zen || ""}"`);
-      return res.status(200).json({ message: "pong", zen: req.body.zen });
+      console.log(`   🏓 Ping from GitHub — zen: "${payload.zen || ""}"`);
+      return res.status(200).json({ message: "pong", zen: payload.zen || null });
     }
 
-    const repository = req.body.repository?.full_name || "Unknown Repo";
-    const head = req.body.head_commit || {};
+    const repository = payload.repository?.full_name || "Unknown Repo";
+    const head = payload.head_commit || {};
 
     // Verify this repo is connected to this user (case-insensitive match)
     const { data: userRepos } = await supabase
@@ -1039,85 +1100,25 @@ app.post("/webhook/github/:userId", async (req, res) => {
     }
 
     // Verify webhook signature if present
-    const sig = req.headers["x-hub-signature-256"];
-    if (sig && userRepo.webhook_secret) {
-      const hmac = crypto
-        .createHmac("sha256", userRepo.webhook_secret)
-        .update(JSON.stringify(req.body))
-        .digest("hex");
-      if (sig !== `sha256=${hmac}`) {
-        return res.status(401).send("Invalid signature");
-      }
+    if (!verifyGithubSignature(req, userRepo.webhook_secret)) {
+      return res.status(401).send("Invalid signature");
     }
 
     // Respond immediately, then analyze in background
     res.status(200).send("OK");
 
     // Collect all changed files from the push
-    const modifiedFiles = head.modified || [];
-    const addedFiles = head.added || [];
-    const allFiles = [...new Set([...modifiedFiles, ...addedFiles])];
+    const allFiles = extractChangedFiles(payload);
 
     if (allFiles.length === 0) return;
 
-    // For each file, fetch content, run Claude, and store result
-    for (const filePath of allFiles.slice(0, 10)) {
-      try {
-        const code = await fetchFileContent(repository, filePath, head.id);
-        if (!code) continue;
-
-        const aiResult = await analyzeCode(code);
-        if (!aiResult || typeof aiResult !== "object") {
-          console.error("AI returned invalid or no result for", filePath);
-          continue;
-        }
-
-        const {
-          issue_title = "AI Review",
-          issue_description = "No description",
-          severity = "Low",
-          suggestion = "",
-          optimization_tip = "",
-          risk_score = 1,
-          code_health_score
-        } = aiResult;
-
-        const healthScore = typeof code_health_score === "number"
-          ? code_health_score
-          : calculateHealthScore(Number(risk_score) || 1);
-
-        const issueData = {
-          user_id: userId,
-          repository_name: repository,
-          file_name: filePath,
-          issue_title,
-          issue_description,
-          severity,
-          suggestion,
-          optimization_tip,
-          risk_score: Number(risk_score) || 1,
-          code_health_score: healthScore,
-          commit_id: head.id || "unknown",
-          commit_message: head.message || "No message",
-          status: "Open",
-        };
-
-        // Insert into Supabase
-        const { error } = await supabase.from("code_reviews").insert([issueData]);
-        if (error) {
-          console.error("Supabase insert error:", error.message);
-        }
-
-        // Alert system for critical issues
-        if (severity === "Critical") {
-          console.log(`[ALERT] Triggering alerts for critical issue in ${filePath}`);
-          sendEmailAlert(issueData);
-          sendToNotion(issueData);
-        }
-      } catch (err) {
-        console.error(`AI review error for ${filePath}:`, err.message);
-      }
-    }
+    await analyzeChangedFiles(
+      repository,
+      userId,
+      allFiles,
+      head.id || "unknown",
+      head.message || "No message"
+    );
   } catch (err) {
     console.error("❌ Webhook Error:", err);
     return res.status(500).send("Internal Server Error");
@@ -1128,8 +1129,9 @@ app.post("/webhook/github/:userId", async (req, res) => {
 
 app.post("/webhook/github", async (req, res) => {
   try {
-    const repository = req.body.repository?.full_name || "Unknown Repo";
-    const head = req.body.head_commit || {};
+    const payload = getGithubPayload(req);
+    const repository = payload.repository?.full_name || "Unknown Repo";
+    const head = payload.head_commit || {};
 
     const { data: userRepo } = await supabase
       .from("user_repositories")
@@ -1145,68 +1147,17 @@ app.post("/webhook/github", async (req, res) => {
 
     if (!userId) return;
 
-    const modifiedFiles = head.modified || [];
-    const addedFiles = head.added || [];
-    const allFiles = [...new Set([...modifiedFiles, ...addedFiles])];
+    const allFiles = extractChangedFiles(payload);
 
     if (allFiles.length === 0) return;
 
-    for (const filePath of allFiles.slice(0, 10)) {
-      try {
-        const code = await fetchFileContent(repository, filePath, head.id);
-        if (!code) continue;
-
-        const aiResult = await analyzeCode(code);
-        if (!aiResult || typeof aiResult !== "object") {
-          console.error("AI returned invalid or no result for", filePath);
-          continue;
-        }
-
-        const {
-          issue_title = "AI Review",
-          issue_description = "No description",
-          severity = "Low",
-          suggestion = "",
-          optimization_tip = "",
-          risk_score = 1,
-          code_health_score
-        } = aiResult;
-
-        const healthScore = typeof code_health_score === "number"
-          ? code_health_score
-          : calculateHealthScore(Number(risk_score) || 1);
-
-        const issueData = {
-          user_id: userId,
-          repository_name: repository,
-          file_name: filePath,
-          issue_title,
-          issue_description,
-          severity,
-          suggestion,
-          optimization_tip,
-          risk_score: Number(risk_score) || 1,
-          code_health_score: healthScore,
-          commit_id: head.id || "unknown",
-          commit_message: head.message || "No message",
-          status: "Open",
-        };
-
-        const { error } = await supabase.from("code_reviews").insert([issueData]);
-        if (error) {
-          console.error("Supabase insert error:", error.message);
-        }
-
-        // Alert system for critical issues
-        if (severity === "Critical") {
-          console.log(`[ALERT] Triggering alerts for critical issue in ${filePath}`);
-          sendEmailAlert(issueData);
-          sendToNotion(issueData);
-        }
-      } catch (err) {
-        console.error(`AI review error for ${filePath}:`, err.message);
-      }
-    }
+    await analyzeChangedFiles(
+      repository,
+      userId,
+      allFiles,
+      head.id || "unknown",
+      head.message || "No message"
+    );
   } catch (err) {
     console.error("❌ Webhook Error:", err);
     return res.status(500).send("Internal Server Error");
@@ -1219,17 +1170,19 @@ app.post("/webhook/github", async (req, res) => {
 app.post("/api/repositories/scan", authMiddleware, async (req, res) => {
   try {
     let { repoFullName } = req.body;
+
     if (repoFullName) {
-      repoFullName = repoFullName.trim()
+      repoFullName = repoFullName
+        .trim()
         .replace(/^https?:\/\/(www\.)?github\.com\//, "")
         .replace(/\.git$/, "")
         .replace(/\/$/, "");
     }
-    if (!repoFullName) {
-      return res.status(400).json({ error: "Provide repoFullName" });
+
+    if (!repoFullName || !repoFullName.includes("/")) {
+      return res.status(400).json({ error: "Provide repo as owner/repo" });
     }
 
-    // Verify repo is connected
     const { data: userRepo } = await req.supabase
       .from("user_repositories")
       .select("*")
@@ -1241,8 +1194,10 @@ app.post("/api/repositories/scan", authMiddleware, async (req, res) => {
       return res.status(404).json({ error: "Repository not connected" });
     }
 
-    // Start scan in background
-    res.json({ success: true, message: `Scan started for ${repoFullName}. Results will appear on your dashboard shortly.` });
+    res.json({
+      success: true,
+      message: `Scan started for ${repoFullName}. Results will appear on your dashboard shortly.`,
+    });
 
     scanRepository(repoFullName, req.user.id).catch((err) => {
       console.error("❌ Manual scan error:", err.message);
