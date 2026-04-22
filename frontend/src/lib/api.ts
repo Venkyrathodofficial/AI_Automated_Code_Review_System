@@ -53,6 +53,17 @@ export interface ConnectRepoResult {
   };
 }
 
+export interface ReportEmailResult {
+  success: boolean;
+  message: string;
+  summary: {
+    total: number;
+    critical: number;
+    medium: number;
+    low: number;
+  };
+}
+
 const BASE = import.meta.env.VITE_API_URL || "/api";
 
 /** Get current user's access token */
@@ -141,6 +152,23 @@ export async function scanRepository(
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: "Failed to scan" }));
     throw new Error(err.error || "Failed to start scan");
+  }
+  return res.json();
+}
+
+export async function sendDetailedReportEmail(payload?: {
+  repoFullName?: string | null;
+  includeResolved?: boolean;
+}): Promise<ReportEmailResult> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${BASE}/notifications/report/email`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload || {}),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Failed to send report" }));
+    throw new Error(err.error || "Failed to send report");
   }
   return res.json();
 }

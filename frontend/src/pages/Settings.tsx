@@ -13,6 +13,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
+import { sendDetailedReportEmail } from "@/lib/api";
 
 const SettingsPage = () => {
   const { user } = useAuth();
@@ -42,6 +43,9 @@ const SettingsPage = () => {
   const [slackNotif, setSlackNotif] = useState(false);
   const [criticalOnly, setCriticalOnly] = useState(false);
   const [autoReview, setAutoReview] = useState(true);
+  const [sendingReport, setSendingReport] = useState(false);
+  const [reportMessage, setReportMessage] = useState<string | null>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
 
   // Profile form state — seeded from Supabase user
   const meta = user?.user_metadata || {};
@@ -76,6 +80,20 @@ const SettingsPage = () => {
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleSendDetailedReport = async () => {
+    setSendingReport(true);
+    setReportError(null);
+    setReportMessage(null);
+    try {
+      const result = await sendDetailedReportEmail({ includeResolved: true });
+      setReportMessage(result.message);
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : "Failed to send report");
+    } finally {
+      setSendingReport(false);
+    }
   };
 
   return (
@@ -195,6 +213,33 @@ const SettingsPage = () => {
                           </div>
                         </div>
                         <Switch checked={criticalOnly} onCheckedChange={setCriticalOnly} />
+                      </div>
+                    </div>
+
+                    <Separator className="my-5" />
+
+                    <div className="rounded-xl border border-border/70 bg-muted/20 p-4">
+                      <p className="text-sm font-semibold text-card-foreground">Detailed PDF Report</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Email a comprehensive report with all issues, repositories, file details, and suggestions.
+                      </p>
+                      <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-3">
+                        <Button
+                          size="sm"
+                          className="h-9 text-xs rounded-xl"
+                          onClick={handleSendDetailedReport}
+                          disabled={sendingReport}
+                        >
+                          {sendingReport ? (
+                            <>
+                              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Sending report...
+                            </>
+                          ) : (
+                            "Send Detailed Report to Email"
+                          )}
+                        </Button>
+                        {reportMessage && <p className="text-xs text-emerald-600 dark:text-emerald-400">{reportMessage}</p>}
+                        {reportError && <p className="text-xs text-destructive">{reportError}</p>}
                       </div>
                     </div>
                   </div>

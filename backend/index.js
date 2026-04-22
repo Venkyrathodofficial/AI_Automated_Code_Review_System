@@ -67,6 +67,10 @@ function extractChangedFiles(payload) {
 // API: Fix Code with AI
 // ============================
 const { fixCodeWithAI } = require("./fixService");
+const {
+  sendDetailedIssueReportEmail,
+  sendMobileReportReadyNotification,
+} = require("./alertService");
 
 app.post("/api/fix-code", async (req, res) => {
   try {
@@ -1068,6 +1072,78 @@ app.get("/api/stats", authMiddleware, async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ============================
+// API: Email detailed issue report (PDF)
+// ============================
+app.post("/api/notifications/report/email", authMiddleware, async (req, res) => {
+  try {
+    const { repoFullName = null, includeResolved = true } = req.body || {};
+
+    let query = req.supabase
+      .from("code_reviews")
+      .select("*")
+      .eq("user_id", req.user.id)
+      .order("created_at", { ascending: false })
+      .limit(1000);
+
+    if (repoFullName) {
+      query = query.eq("repository_name", repoFullName);
+    }
+
+    const { data: reviews, error } = await query;
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    const filtered = (reviews || []).filter((r) => {
+      const title = String(r.issue_title || "").toLowerCase();
+      const isSummaryRow =
+        title.includes("no issues found") ||
+        title.includes("scan complete") ||
+        title.includes("clean commit");
+
+      if (isSummaryRow) return false;
+      if (!includeResolved && String(r.status || "").toLowerCase() === "resolved") return false;
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      return res.status(400).json({
+        error: "No matching issues available to include in a report.",
+      });
+    }
+
+    const userName =
+      req.user.user_metadata?.full_name ||
+      `${req.user.user_metadata?.first_name || ""} ${req.user.user_metadata?.last_name || ""}`.trim() ||
+      "";
+
+    const summary = await sendDetailedIssueReportEmail({
+      to: req.user.email,
+      userName,
+      issues: filtered,
+    });
+
+    await sendMobileReportReadyNotification({
+      externalUserId: req.user.id,
+      title: "Report emailed",
+      message: `Your detailed report (${summary.total} issues) has been emailed.`,
+      url: process.env.FRONTEND_URL || "https://codeaurorasentinel.vercel.app/issues",
+    });
+
+    return res.json({
+      success: true,
+      message: `Detailed PDF report sent to ${req.user.email}`,
+      summary,
+    });
+  } catch (err) {
+    console.error("❌ Report email error:", err);
+    return res.status(500).json({
+      error: err.message || "Failed to generate report",
+    });
   }
 });
 
