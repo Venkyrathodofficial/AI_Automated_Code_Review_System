@@ -103,11 +103,10 @@ const Login = () => {
   const initialMode: AuthMode = searchParams.get("signup") === "true" ? "signup" : "signin";
 
   const [mode, setMode] = useState<AuthMode>(initialMode);
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [companyName, setCompanyName] = useState("");
-  const [companyRegNo, setCompanyRegNo] = useState("");
   const [keepLoggedIn, setKeepLoggedIn] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -266,6 +265,23 @@ const Login = () => {
                 ) : (
                   <form onSubmit={handleAuthSubmit} className="mt-6 space-y-4">
                     <div>
+                      {mode === "signup" && (
+                        <div className="mb-4">
+                          <Label htmlFor="name" className="text-xs font-semibold text-muted-foreground">
+                            Name
+                          </Label>
+                          <Input
+                            id="name"
+                            type="text"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            placeholder="Your name"
+                            required
+                            className="mt-1.5 h-11 rounded-lg border-border bg-muted/35"
+                          />
+                        </div>
+                      )}
+
                       <Label htmlFor="email" className="text-xs font-semibold text-muted-foreground">
                         Email address
                       </Label>
@@ -343,33 +359,6 @@ const Login = () => {
                           </div>
                         </div>
 
-                        <div>
-                          <Label htmlFor="companyName" className="text-xs font-semibold text-muted-foreground">
-                            Company name
-                          </Label>
-                          <Input
-                            id="companyName"
-                            type="text"
-                            value={companyName}
-                            onChange={(e) => setCompanyName(e.target.value)}
-                            placeholder="Company name"
-                            className="mt-1.5 h-11 rounded-lg border-border bg-muted/35"
-                          />
-                        </div>
-
-                        <div>
-                          <Label htmlFor="companyRegNo" className="text-xs font-semibold text-muted-foreground">
-                            Company registration number
-                          </Label>
-                          <Input
-                            id="companyRegNo"
-                            type="text"
-                            value={companyRegNo}
-                            onChange={(e) => setCompanyRegNo(e.target.value)}
-                            placeholder="Company registration number"
-                            className="mt-1.5 h-11 rounded-lg border-border bg-muted/35"
-                          />
-                        </div>
                       </>
                     )}
 
