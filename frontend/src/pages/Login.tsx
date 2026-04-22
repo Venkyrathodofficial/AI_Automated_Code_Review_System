@@ -1,363 +1,435 @@
 import { useState } from "react";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  ArrowLeft,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Monitor,
+  Shield,
+  UserRoundPlus,
+} from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { Navigate, useSearchParams, Link } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
-import { ShieldCheck, Loader2, Eye, EyeOff } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 
+type AuthMode = "signin" | "signup" | "reset";
+
+const contentByMode: Record<
+  AuthMode,
+  {
+    title: string;
+    subtitle: string;
+    submitText: string;
+    panelTitle: string;
+  }
+> = {
+  signin: {
+    title: "Sign in",
+    subtitle: "Enter your details to continue to your account.",
+    submitText: "Sign in",
+    panelTitle: "Welcome back",
+  },
+  signup: {
+    title: "Sign up",
+    subtitle: "Create your account and start secure code reviews.",
+    submitText: "Sign up",
+    panelTitle: "Create account",
+  },
+  reset: {
+    title: "Reset password",
+    subtitle: "Enter your email and we will send your reset link.",
+    submitText: "Request reset link",
+    panelTitle: "Recover access",
+  },
+};
+
+function AuthArtwork({ mode }: { mode: AuthMode }) {
+  return (
+    <div className="relative mx-auto w-full max-w-md">
+      <div className="relative h-72 w-full rounded-[42px] bg-gradient-to-b from-primary/5 via-primary/10 to-transparent">
+        <div className="absolute left-1/2 top-1/2 h-60 w-60 -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary/20 bg-card/55" />
+
+        {mode === "signin" && (
+          <>
+            <div className="absolute left-1/2 top-1/2 h-28 w-24 -translate-x-1/2 -translate-y-1/2 rounded-t-[60px] bg-primary/85" />
+            <div className="absolute left-1/2 top-[56%] h-14 w-20 -translate-x-1/2 rounded-2xl bg-primary/20" />
+            <div className="absolute left-1/2 top-[61%] flex h-14 w-20 -translate-x-1/2 items-center justify-center rounded-xl border border-primary/20 bg-card shadow-sm">
+              <Monitor className="h-6 w-6 text-primary" />
+            </div>
+            <div className="absolute left-[30%] top-[72%] h-8 w-8 rounded-2xl bg-primary/20" />
+          </>
+        )}
+
+        {mode === "signup" && (
+          <>
+            <div className="absolute left-[36%] top-[46%] h-24 w-20 -translate-x-1/2 -translate-y-1/2 rounded-t-[48px] bg-primary/80" />
+            <div className="absolute left-[58%] top-[56%] h-16 w-24 -translate-x-1/2 rounded-xl border border-primary/25 bg-card shadow-sm" />
+            <div className="absolute left-[58%] top-[61%] h-1.5 w-16 -translate-x-1/2 rounded-full bg-primary/30" />
+            <div className="absolute left-[58%] top-[66%] h-1.5 w-12 -translate-x-1/2 rounded-full bg-primary/25" />
+            <div className="absolute left-[27%] top-[76%] h-8 w-8 rounded-2xl bg-primary/20" />
+            <div className="absolute left-[70%] top-[76%] h-8 w-8 rounded-2xl bg-primary/20" />
+            <div className="absolute left-[53%] top-[40%] flex h-8 w-8 items-center justify-center rounded-xl border border-primary/30 bg-card">
+              <UserRoundPlus className="h-4 w-4 text-primary" />
+            </div>
+          </>
+        )}
+
+        {mode === "reset" && (
+          <>
+            <div className="absolute left-[40%] top-[48%] h-24 w-20 -translate-x-1/2 -translate-y-1/2 rounded-t-[48px] bg-primary/82" />
+            <div className="absolute left-[58%] top-[58%] flex h-20 w-20 -translate-x-1/2 items-center justify-center rounded-2xl border border-primary/25 bg-card shadow-sm">
+              <Shield className="h-9 w-9 text-primary" />
+            </div>
+            <div className="absolute left-[58%] top-[56%] flex h-6 w-6 translate-x-3 translate-y-7 items-center justify-center rounded-full border border-primary/30 bg-background">
+              <KeyRound className="h-3.5 w-3.5 text-primary" />
+            </div>
+            <div className="absolute left-[30%] top-[75%] h-8 w-8 rounded-2xl bg-primary/20" />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const Login = () => {
   const { user, signIn, signUp } = useAuth();
   const [searchParams] = useSearchParams();
-  const [isSignUp, setIsSignUp] = useState(searchParams.get("signup") === "true");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
+
+  const initialMode: AuthMode = searchParams.get("signup") === "true" ? "signup" : "signin";
+
+  const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [companyRegNo, setCompanyRegNo] = useState("");
   const [keepLoggedIn, setKeepLoggedIn] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   if (user) return <Navigate to="/dashboard" replace />;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const resetFeedback = () => {
     setError(null);
     setSuccess(null);
+  };
+
+  const switchMode = (nextMode: AuthMode) => {
+    setMode(nextMode);
+    resetFeedback();
+  };
+
+  const handleAuthSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    resetFeedback();
     setLoading(true);
 
-    if (isSignUp) {
-      const { error } = await signUp(email, password);
-      if (error) {
-        setError(error.message);
+    if (mode === "signup") {
+      if (password !== confirmPassword) {
+        setError("Password and confirm password must match.");
+        setLoading(false);
+        return;
+      }
+
+      const { error: signupError } = await signUp(email, password);
+      if (signupError) {
+        setError(signupError.message);
       } else {
-        setSuccess("Account created! Check your email for a confirmation link, then sign in.");
-        setIsSignUp(false);
+        setSuccess("Account created. Check your email for verification, then sign in.");
+        setMode("signin");
+        setPassword("");
+        setConfirmPassword("");
       }
-    } else {
-      const { error } = await signIn(email, password);
-      if (error) {
-        setError(error.message);
-      }
+      setLoading(false);
+      return;
     }
+
+    const { error: signinError } = await signIn(email, password);
+    if (signinError) setError(signinError.message);
     setLoading(false);
   };
 
-  const switchMode = () => {
-    setIsSignUp(!isSignUp);
-    setError(null);
-    setSuccess(null);
+  const handleResetSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    resetFeedback();
+    setLoading(true);
+
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/login`,
+    });
+
+    if (resetError) {
+      setError(resetError.message);
+    } else {
+      setSuccess("Password reset link sent. Please check your email inbox.");
+    }
+
+    setLoading(false);
   };
 
-  /* Decorative Panel with Green Theme */
-  const DecorativePanel = ({ title }: { title: string }) => (
-    <div className="relative h-full w-full overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary/90 to-emerald-700">
-      {/* Abstract Light Effects */}
-      <div className="absolute inset-0">
-        <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-gradient-to-r from-emerald-300/30 to-teal-400/30 blur-3xl rounded-full" />
-        <div className="absolute bottom-1/4 right-1/4 w-48 h-48 bg-gradient-to-r from-green-300/30 to-emerald-400/30 blur-3xl rounded-full" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-72 h-72 bg-gradient-to-r from-teal-300/20 to-green-400/20 blur-3xl rounded-full" />
-        {/* Light Rays */}
-        <div className="absolute inset-0 opacity-30">
-          <div className="absolute top-0 left-1/3 w-1 h-full bg-gradient-to-b from-emerald-300/50 via-transparent to-transparent rotate-12" />
-          <div className="absolute top-0 left-1/2 w-0.5 h-full bg-gradient-to-b from-green-300/50 via-transparent to-transparent -rotate-12" />
-          <div className="absolute top-0 right-1/3 w-1 h-full bg-gradient-to-b from-teal-300/50 via-transparent to-transparent rotate-6" />
-        </div>
-      </div>
-
-      {/* Logo & Branding */}
-      <div className="absolute top-6 left-6 flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm border border-white/30 shadow-lg">
-          <ShieldCheck className="h-5 w-5 text-white" />
-        </div>
-        <div className="hidden md:block">
-          <p className="text-white font-bold text-sm">CodeAurora</p>
-          <p className="text-white/70 text-xs">Sentinel AI</p>
-        </div>
-      </div>
-
-      {/* Title */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-4xl md:text-5xl font-bold text-white leading-tight drop-shadow-lg">
-            {title.split(" ").map((word, i) => (
-              <span key={i} className="block">{word}</span>
-            ))}
-          </h2>
-          <p className="mt-4 text-white/80 text-sm max-w-xs mx-auto">
-            Secure every commit with AI-powered code review
-          </p>
-        </div>
-      </div>
-
-      {/* Bottom branding */}
-      <div className="absolute bottom-6 left-0 right-0 text-center">
-        <p className="text-white/60 text-xs">Powered by Advanced AI Technology</p>
-      </div>
-    </div>
-  );
-
-  /* Login Form */
-  const LoginForm = () => (
-    <div className="h-full flex flex-col justify-center p-8 md:p-12">
-      <div className="max-w-sm mx-auto w-full">
-        {/* Mobile Logo */}
-        <div className="flex items-center gap-3 mb-8 md:hidden">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary shadow-lg shadow-primary/20">
-            <ShieldCheck className="h-5 w-5 text-white" />
-          </div>
-          <div>
-            <span className="font-bold text-foreground">CodeAurora Sentinel</span>
-            <p className="text-xs text-primary font-medium">AI Code Review</p>
-          </div>
-        </div>
-
-        <h1 className="text-2xl font-bold text-foreground mb-2">Login</h1>
-        <p className="text-sm text-muted-foreground mb-8">Please enter your login details to log in.</p>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <Label className="text-xs font-medium text-muted-foreground">Email Address</Label>
-            <Input
-              type="email"
-              placeholder="Enter your email"
-              className="mt-1.5 h-11 rounded-xl"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-medium text-muted-foreground">Password</Label>
-              <button type="button" className="text-xs text-primary hover:underline font-medium">
-                Forgot password?
-              </button>
-            </div>
-            <div className="relative mt-1.5">
-              <Input
-                type={showPassword ? "text" : "password"}
-                placeholder="Enter your password"
-                className="h-11 pr-10 rounded-xl"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={6}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Checkbox 
-              id="keepLoggedIn" 
-              checked={keepLoggedIn} 
-              onCheckedChange={(checked) => setKeepLoggedIn(checked as boolean)}
-            />
-            <label htmlFor="keepLoggedIn" className="text-xs text-muted-foreground cursor-pointer">
-              Keep me logged in
-            </label>
-          </div>
-
-          {error && (
-            <div className="rounded-xl bg-destructive/10 text-destructive text-xs p-3 border border-destructive/20">
-              {error}
-            </div>
-          )}
-
-          {success && (
-            <div className="rounded-xl bg-success/10 text-success text-xs p-3 border border-success/20">
-              {success}
-            </div>
-          )}
-
-          <Button 
-            type="submit" 
-            className="w-full h-11 rounded-xl font-semibold" 
-            disabled={loading}
-          >
-            {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            Log in
-          </Button>
-        </form>
-
-        <div className="mt-6 text-center">
-          <p className="text-xs text-muted-foreground">
-            Don't have an account?{" "}
-            <button onClick={switchMode} className="text-primary font-semibold hover:underline">
-              Create account
-            </button>
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-
-  /* Sign Up Form */
-  const SignUpForm = () => (
-    <div className="h-full flex flex-col justify-center p-8 md:p-12">
-      <div className="max-w-sm mx-auto w-full">
-        {/* Mobile Logo */}
-        <div className="flex items-center gap-3 mb-8 md:hidden">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary shadow-lg shadow-primary/20">
-            <ShieldCheck className="h-5 w-5 text-white" />
-          </div>
-          <div>
-            <span className="font-bold text-foreground">CodeAurora Sentinel</span>
-            <p className="text-xs text-primary font-medium">AI Code Review</p>
-          </div>
-        </div>
-
-        <h1 className="text-2xl font-bold text-foreground mb-6">Create Account</h1>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label className="text-xs font-medium text-muted-foreground">First name</Label>
-              <Input
-                type="text"
-                placeholder="First name"
-                className="mt-1.5 h-11 rounded-xl text-sm"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-              />
-            </div>
-            <div>
-              <Label className="text-xs font-medium text-muted-foreground">Last name</Label>
-              <Input
-                type="text"
-                placeholder="Last name"
-                className="mt-1.5 h-11 rounded-xl text-sm"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div>
-            <Label className="text-xs font-medium text-muted-foreground">Email</Label>
-            <Input
-              type="email"
-              placeholder="Enter your email"
-              className="mt-1.5 h-11 rounded-xl"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-medium text-muted-foreground">Password</Label>
-              <span className="text-xs text-muted-foreground">min 8 characters</span>
-            </div>
-            <div className="relative mt-1.5">
-              <Input
-                type={showPassword ? "text" : "password"}
-                placeholder="Create password"
-                className="h-11 pr-10 rounded-xl"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={8}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-          </div>
-
-          {error && (
-            <div className="rounded-xl bg-destructive/10 text-destructive text-xs p-3 border border-destructive/20">
-              {error}
-            </div>
-          )}
-
-          {success && (
-            <div className="rounded-xl bg-success/10 text-success text-xs p-3 border border-success/20">
-              {success}
-            </div>
-          )}
-
-          <Button 
-            type="submit" 
-            className="w-full h-11 rounded-xl font-semibold" 
-            disabled={loading}
-          >
-            {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            Create Account
-          </Button>
-        </form>
-
-        <div className="mt-6 text-center">
-          <p className="text-xs text-muted-foreground">
-            Already have an account?{" "}
-            <button onClick={switchMode} className="text-primary font-semibold hover:underline">
-              Log in
-            </button>
-          </p>
-        </div>
-      </div>
-    </div>
-  );
+  const current = contentByMode[mode];
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-primary/5 p-4 md:p-8">
-      {/* Back to home */}
-      <Link 
-        to="/" 
-        className="absolute top-4 left-4 flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors text-sm"
-      >
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-          <ShieldCheck className="h-4 w-4 text-primary" />
-        </div>
-        <span className="font-medium hidden sm:inline">CodeAurora Sentinel AI</span>
-      </Link>
+    <div className="relative min-h-screen overflow-hidden bg-[#eef1f2] px-4 py-7 text-foreground">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -left-4 top-20 h-4 w-4 rotate-12 rounded-sm bg-primary/10" />
+        <div className="absolute left-[20%] top-[15%] h-5 w-5 rotate-12 rounded-sm bg-primary/10" />
+        <div className="absolute right-[18%] top-[20%] h-6 w-6 rotate-12 rounded-sm border border-primary/20" />
+        <div className="absolute left-[8%] bottom-[22%] h-7 w-7 rotate-12 rounded-sm bg-primary/10" />
+        <div className="absolute right-[12%] bottom-[14%] h-4 w-4 rotate-12 rounded-sm bg-primary/10" />
+      </div>
 
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.4 }}
-        className="w-full max-w-4xl bg-card rounded-3xl shadow-2xl border border-border overflow-hidden"
-      >
-        <div className="relative h-[620px] md:h-[650px] flex flex-col md:flex-row">
-          {/* Decorative Panel stays mounted */}
-          <div className="h-32 md:h-auto md:flex-1 p-2 flex items-stretch">
-            {isSignUp ? (
-              <DecorativePanel title="Let's Get Started!" />
-            ) : (
-              <DecorativePanel title="Welcome back!" />
-            )}
-          </div>
-          {/* Form container stays mounted, only content switches */}
-          <div className="flex-1 bg-card flex items-stretch">
-            <div className="w-full">
-              {isSignUp ? <SignUpForm /> : <LoginForm />}
+      <div className="relative mx-auto max-w-6xl">
+        <Link to="/" className="inline-flex items-center gap-2 text-[28px] font-bold tracking-tight text-foreground/90">
+          <span className="text-primary">Code</span>Aurora
+        </Link>
+
+        <div className="mt-5 grid items-center gap-6 lg:grid-cols-[1.15fr_420px]">
+          <motion.section
+            key={mode}
+            initial={{ opacity: 0, x: -14 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.25 }}
+            className="rounded-[28px]"
+          >
+            <div className="px-2 pb-3 pt-2">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-primary/75">{current.panelTitle}</p>
+              <AuthArtwork mode={mode} />
             </div>
-          </div>
-        </div>
-      </motion.div>
+          </motion.section>
 
-      {/* Bottom branding */}
-      <div className="absolute bottom-4 text-center">
-        <p className="text-xs text-muted-foreground">
-          Secured by Supabase • © 2026 CodeAurora Sentinel AI
-        </p>
+          <motion.section
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.28 }}
+            className="rounded-[26px] border border-border/60 bg-card px-6 py-7 shadow-lg shadow-black/5 sm:px-8"
+          >
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={mode}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.2 }}
+              >
+                <h1 className="text-[34px] font-bold leading-none tracking-tight">{current.title}</h1>
+                <p className="mt-2 text-sm text-muted-foreground">{current.subtitle}</p>
+
+                {mode === "reset" ? (
+                  <form onSubmit={handleResetSubmit} className="mt-6 space-y-4">
+                    <div>
+                      <Label htmlFor="resetEmail" className="text-xs font-semibold text-muted-foreground">
+                        Email address
+                      </Label>
+                      <Input
+                        id="resetEmail"
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="Email address"
+                        required
+                        className="mt-1.5 h-11 rounded-lg border-border bg-muted/35"
+                      />
+                    </div>
+
+                    {error && (
+                      <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                        {error}
+                      </div>
+                    )}
+                    {success && (
+                      <div className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs text-success">
+                        {success}
+                      </div>
+                    )}
+
+                    <Button type="submit" disabled={loading} className="h-11 w-full rounded-full font-semibold">
+                      {loading ? "Sending..." : current.submitText}
+                    </Button>
+
+                    <button
+                      type="button"
+                      onClick={() => switchMode("signin")}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+                    >
+                      <ArrowLeft className="h-3.5 w-3.5" /> Back to Login screen
+                    </button>
+                  </form>
+                ) : (
+                  <form onSubmit={handleAuthSubmit} className="mt-6 space-y-4">
+                    <div>
+                      <Label htmlFor="email" className="text-xs font-semibold text-muted-foreground">
+                        Email address
+                      </Label>
+                      <Input
+                        id="email"
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="Email address"
+                        required
+                        className="mt-1.5 h-11 rounded-lg border-border bg-muted/35"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <Label htmlFor="password" className="text-xs font-semibold text-muted-foreground">
+                          Password
+                        </Label>
+                        {mode === "signin" && (
+                          <button
+                            type="button"
+                            onClick={() => switchMode("reset")}
+                            className="text-xs font-semibold text-primary hover:underline"
+                          >
+                            Forgot password?
+                          </button>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <Input
+                          id="password"
+                          type={showPassword ? "text" : "password"}
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder="Password"
+                          required
+                          minLength={mode === "signup" ? 8 : 6}
+                          className="h-11 rounded-lg border-border bg-muted/35 pr-10"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword((prev) => !prev)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                        >
+                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {mode === "signup" && (
+                      <>
+                        <div>
+                          <Label htmlFor="confirmPassword" className="text-xs font-semibold text-muted-foreground">
+                            Confirm password
+                          </Label>
+                          <div className="relative mt-1.5">
+                            <Input
+                              id="confirmPassword"
+                              type={showConfirmPassword ? "text" : "password"}
+                              value={confirmPassword}
+                              onChange={(e) => setConfirmPassword(e.target.value)}
+                              placeholder="Confirm password"
+                              required
+                              minLength={8}
+                              className="h-11 rounded-lg border-border bg-muted/35 pr-10"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowConfirmPassword((prev) => !prev)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                            >
+                              {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <Label htmlFor="companyName" className="text-xs font-semibold text-muted-foreground">
+                            Company name
+                          </Label>
+                          <Input
+                            id="companyName"
+                            type="text"
+                            value={companyName}
+                            onChange={(e) => setCompanyName(e.target.value)}
+                            placeholder="Company name"
+                            className="mt-1.5 h-11 rounded-lg border-border bg-muted/35"
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor="companyRegNo" className="text-xs font-semibold text-muted-foreground">
+                            Company registration number
+                          </Label>
+                          <Input
+                            id="companyRegNo"
+                            type="text"
+                            value={companyRegNo}
+                            onChange={(e) => setCompanyRegNo(e.target.value)}
+                            placeholder="Company registration number"
+                            className="mt-1.5 h-11 rounded-lg border-border bg-muted/35"
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {mode === "signin" && (
+                      <div className="flex items-center gap-2 pt-0.5">
+                        <Checkbox
+                          id="remember"
+                          checked={keepLoggedIn}
+                          onCheckedChange={(checked) => setKeepLoggedIn(Boolean(checked))}
+                        />
+                        <label htmlFor="remember" className="text-xs text-muted-foreground">
+                          Remember me
+                        </label>
+                      </div>
+                    )}
+
+                    {error && (
+                      <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                        {error}
+                      </div>
+                    )}
+                    {success && (
+                      <div className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs text-success">
+                        {success}
+                      </div>
+                    )}
+
+                    <Button type="submit" disabled={loading} className="h-11 w-full rounded-full font-semibold">
+                      {loading ? "Please wait..." : current.submitText}
+                    </Button>
+
+                    {mode === "signin" ? (
+                      <p className="text-center text-xs text-muted-foreground">
+                        Not Registered yet?{" "}
+                        <button
+                          type="button"
+                          onClick={() => switchMode("signup")}
+                          className="font-semibold text-primary hover:underline"
+                        >
+                          Register
+                        </button>
+                      </p>
+                    ) : (
+                      <p className="text-center text-xs text-muted-foreground">
+                        Already have an account?{" "}
+                        <button
+                          type="button"
+                          onClick={() => switchMode("signin")}
+                          className="font-semibold text-primary hover:underline"
+                        >
+                          Login
+                        </button>
+                      </p>
+                    )}
+                  </form>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </motion.section>
+        </div>
       </div>
     </div>
   );
