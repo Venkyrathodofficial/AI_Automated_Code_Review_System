@@ -836,10 +836,14 @@ app.get("/api/repositories", authMiddleware, async (req, res) => {
         critical: 0,
         medium: 0,
         low: 0,
+        criticalOpen: 0,
+        mediumOpen: 0,
+        lowOpen: 0,
         open: 0,
         resolved: 0,
         lastReviewDate: null,
         files: new Set(),
+        healthSignals: [],
         connectedAt: ur.connected_at,
         webhookSecret: ur.webhook_secret,
       };
@@ -854,9 +858,22 @@ app.get("/api/repositories", authMiddleware, async (req, res) => {
       if (sev === "critical") repo.critical++;
       else if (sev === "medium") repo.medium++;
       else repo.low++;
+
       const st = (r.status || "").toLowerCase();
-      if (st === "resolved") repo.resolved++;
-      else repo.open++;
+      if (st === "resolved") {
+        repo.resolved++;
+      } else {
+        repo.open++;
+        if (sev === "critical") repo.criticalOpen++;
+        else if (sev === "medium") repo.mediumOpen++;
+        else repo.lowOpen++;
+      }
+
+      const score = Number(r.code_health_score);
+      if (Number.isFinite(score) && score >= 0 && score <= 100) {
+        repo.healthSignals.push({ score, createdAt: r.created_at || "" });
+      }
+
       if (r.file_name) repo.files.add(r.file_name);
       if (r.created_at && (!repo.lastReviewDate || r.created_at > repo.lastReviewDate)) {
         repo.lastReviewDate = r.created_at;
@@ -864,8 +881,21 @@ app.get("/api/repositories", authMiddleware, async (req, res) => {
     });
 
     const repos = Object.values(repoMap).map((r) => {
-      const total = r.critical + r.medium + r.low;
-      const healthScore = total === 0 ? 100 : Math.max(0, Math.round(100 - (r.critical * 15 + r.medium * 5 + r.low * 1)));
+      let healthScore = 100;
+
+      if (r.healthSignals.length > 0) {
+        const recentSignals = r.healthSignals
+          .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+          .slice(0, 30);
+        const avg = recentSignals.reduce((sum, s) => sum + s.score, 0) / recentSignals.length;
+        healthScore = Math.round(avg);
+      } else {
+        const filesBase = Math.max(r.files.size || 0, 1);
+        const weightedOpenIssues = r.criticalOpen * 35 + r.mediumOpen * 12 + r.lowOpen * 4;
+        const penalty = Math.round(weightedOpenIssues / filesBase);
+        healthScore = Math.max(0, Math.min(100, 100 - penalty));
+      }
+
       return {
         name: r.name,
         totalReviews: r.totalReviews,
