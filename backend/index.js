@@ -1,21 +1,27 @@
 require("dotenv").config();
 
 const express = require("express");
-const bodyParser = require("body-parser");
 const cors = require("cors");
 const crypto = require("crypto");
-const fetch = require("node-fetch");
 const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 app.use(cors());
 
+// Version routing middleware: maps incoming client /api/v1/... requests internally to /api/...
+app.use((req, res, next) => {
+  if (req.url.startsWith("/api/v1/")) {
+    req.url = req.url.replace(/^\/api\/v1/, "/api");
+  }
+  next();
+});
+
 function rawBodySaver(req, _res, buf) {
   if (buf && buf.length) req.rawBody = buf.toString("utf8");
 }
 
-app.use(bodyParser.json({ verify: rawBodySaver }));
-app.use(bodyParser.urlencoded({ extended: true, verify: rawBodySaver }));
+app.use(express.json({ verify: rawBodySaver }));
+app.use(express.urlencoded({ extended: true, verify: rawBodySaver }));
 
 function getGithubPayload(req) {
   let payload = req.body;
@@ -31,8 +37,9 @@ function getGithubPayload(req) {
 }
 
 function verifyGithubSignature(req, secret) {
+  if (!secret) return true; // fallback if no secret is configured
   const sig = req.headers["x-hub-signature-256"];
-  if (!sig || !secret) return true;
+  if (!sig) return false; // reject unsigned requests when a secret is configured
   if (!req.rawBody) return false;
 
   const expected = `sha256=${crypto
@@ -67,9 +74,11 @@ function extractChangedFiles(payload) {
 // API: Fix Code with AI
 // ============================
 const { fixCodeWithAI } = require("./fixService");
+const { validateAndExplainIssuesWithGemini } = require("./geminiService");
 const {
   sendDetailedIssueReportEmail,
   sendMobileReportReadyNotification,
+  buildIssueReportPdfBuffer,
 } = require("./alertService");
 
 app.post("/api/fix-code", async (req, res) => {
@@ -88,6 +97,91 @@ app.post("/api/fix-code", async (req, res) => {
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
+// ============================
+// API: Commit Fix to GitHub
+// ============================
+app.post("/api/commit-fix", authMiddleware, async (req, res) => {
+  try {
+    const { fileName, improvedCode, repo, branch, token } = req.body;
+    if (!fileName || !improvedCode || !repo) {
+      return res.status(400).json({ error: "Missing fileName, improvedCode, or repo" });
+    }
+
+    // 1. Determine which GitHub token to use
+    let githubToken = token;
+    if (!githubToken) {
+      // Get user's token from Supabase profiles
+      const { data: profile, error: profileErr } = await supabase
+        .from("profiles")
+        .select("github_token")
+        .eq("id", req.user.id)
+        .single();
+      
+      if (profileErr || !profile?.github_token) {
+        return res.status(401).json({ error: "GitHub account not connected. Please connect via Settings or provide a token manually." });
+      }
+      githubToken = profile.github_token;
+    }
+
+    // 2. Fetch the current file's SHA from GitHub API
+    const targetBranch = branch || "main";
+    const headers = {
+      Accept: "application/vnd.github.v3+json",
+      "User-Agent": "AI-Code-Review-Bot",
+      Authorization: `token ${githubToken}`,
+    };
+
+    const encodedPath = fileName
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/");
+      
+    const url = `https://api.github.com/repos/${repo}/contents/${encodedPath}?ref=${targetBranch}`;
+    const getRes = await fetch(url, { headers });
+    
+    let sha = null;
+    if (getRes.ok) {
+      const fileData = await getRes.json();
+      sha = fileData.sha;
+    } else if (getRes.status !== 404) {
+      const errMsg = await getRes.text();
+      return res.status(getRes.status).json({ error: `GitHub API error: ${errMsg}` });
+    }
+
+    // 3. Commit/PUT updated file back to GitHub
+    const putUrl = `https://api.github.com/repos/${repo}/contents/${encodedPath}`;
+    const putBody = {
+      message: `fix(sentinel-ai): automatic review code fix for ${fileName}`,
+      content: Buffer.from(improvedCode).toString("base64"),
+      branch: targetBranch,
+    };
+    if (sha) {
+      putBody.sha = sha;
+    }
+
+    const putRes = await fetch(putUrl, {
+      method: "PUT",
+      headers: {
+        ...headers,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(putBody),
+    });
+
+    if (!putRes.ok) {
+      const errMsg = await putRes.text();
+      return res.status(putRes.status).json({ error: `GitHub commit failed: ${errMsg}` });
+    }
+
+    const putData = await putRes.json();
+    return res.json({ success: true, commit: putData.commit });
+  } catch (err) {
+    console.error("/api/commit-fix error:", err.message);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 
 // ============================
 // GitHub OAuth Endpoints
@@ -263,189 +357,170 @@ async function fetchFileContent(repoFullName, filePath, ref, userToken) {
 // Code Analysis Engine
 // ============================
 const analysisRules = [
-  // Security — Critical
+  // 1. API Key Exposure
   {
-    id: "SEC001", pattern: /eval\s*\(/g, severity: "Critical",
-    title: "Dangerous eval() usage detected",
-    description: "eval() executes arbitrary code and can lead to code injection attacks.",
-    suggestion: "Replace eval() with JSON.parse(), Function constructor, or a safer alternative.",
-    tip: "Use a sandboxed environment if dynamic code execution is absolutely necessary.",
-    riskScore: 9,
-  },
-  {
-    id: "SEC002", pattern: /innerHTML\s*=/g, severity: "Critical",
-    title: "innerHTML assignment — XSS risk",
-    description: "Direct innerHTML assignment can lead to Cross-Site Scripting (XSS) vulnerabilities.",
-    suggestion: "Use textContent for plain text, or sanitize HTML with DOMPurify before assigning.",
-    tip: "In React, dangerouslySetInnerHTML is equally dangerous—avoid it.",
-    riskScore: 9,
-  },
-  {
-    id: "SEC003",
-    pattern: /(?:password|secret|api[_-]?key|token|private[_-]?key)\s*[:=]\s*["'][^"']{4,}/gi,
+    id: "API_KEY_EXPOSURE",
+    category: "api_key_exposure",
+    pattern: /(?:gemini|openai|stripe|aws|azure|firebase|github|jwt|secret|key|token|passwd|auth)[_-]?(?:key|secret|token|password|cred|pass|auth|cert|hash|salt|private|api)?\s*[:=]\s*["'](?:sb_publishable_|sk_|sk-proj-|AIzaSy|amzn\.mws\.|ghp_|gho_|ghu_|ghs_|eyJhbGciOi)[a-zA-Z0-9_\-\+]{4,}/gi,
     severity: "Critical",
-    title: "Hardcoded secret or credential detected",
-    description: "Secrets embedded in source code can be leaked through version control.",
-    suggestion: "Move secrets to environment variables or a secrets manager (e.g., AWS Secrets Manager, Vault).",
-    tip: "Add a pre-commit hook with tools like git-secrets or trufflehog to prevent accidental commits.",
-    riskScore: 10,
+    title: "Hardcoded API Key or Secret Token",
+    description: "Private keys, tokens, or credentials embedded directly in code can be compromised through version control.",
+    suggestion: "Extract secrets to environment variables (.env files) or use a managed secret manager.",
+    tip: "Enable automated secret scanners on GitHub to alert you before leaks are committed.",
+    riskScore: 10
   },
   {
-    id: "SEC004", pattern: /exec\s*\(\s*['"`]|child_process/g, severity: "Critical",
-    title: "Shell command execution detected",
-    description: "Executing shell commands can lead to command injection if user input is not sanitized.",
-    suggestion: "Use parameterized APIs instead of shell commands. If unavoidable, validate and escape all inputs.",
-    tip: "Use execFile() instead of exec() to avoid shell interpretation of arguments.",
-    riskScore: 9,
-  },
-  {
-    id: "SEC005", pattern: /document\.write\s*\(/g, severity: "Critical",
-    title: "document.write() usage detected",
-    description: "document.write() can overwrite the entire page and is vulnerable to XSS.",
-    suggestion: "Use DOM manipulation methods like createElement() and appendChild() instead.",
-    tip: "Modern frameworks avoid document.write entirely—consider migrating.",
-    riskScore: 8,
-  },
-  {
-    id: "SEC006", pattern: /SELECT\s+.+\s+FROM\s+.+\s+WHERE\s+.+['"\+]|(\$\{|\+\s*req\.(body|query|params))/gi, severity: "Critical",
-    title: "Potential SQL injection vulnerability",
-    description: "String concatenation in SQL queries can allow attackers to inject malicious SQL.",
-    suggestion: "Use parameterized queries or an ORM (Sequelize, Prisma, Knex) to prevent SQL injection.",
-    tip: "Always validate and sanitize user inputs even when using parameterized queries.",
-    riskScore: 10,
+    id: "API_KEY_VARIABLE",
+    category: "api_key_exposure",
+    pattern: /(?:api[_-]?key|client[_-]?secret|jwt[_-]?secret|private[_-]?key|stripe[_-]?secret|github[_-]?token)\s*[:=]\s*["'][a-zA-Z0-9_\-\+\.]{16,}["']/gi,
+    severity: "Critical",
+    title: "Suspicious Hardcoded Credential Variable",
+    description: "A variable named after an API key or secret has been assigned a hardcoded string literal.",
+    suggestion: "Replace the hardcoded secret string with process.env.YOUR_VARIABLE_NAME.",
+    tip: "Use dotenv locally and native cloud secrets manager for deployment.",
+    riskScore: 9
   },
 
-  // Quality — Medium
+  // 2. SQL Injection Risk
   {
-    id: "QAL001", pattern: /console\.(log|debug|info)\s*\(/g, severity: "Medium",
-    title: "Console logging left in code",
-    description: "Console statements should be removed from production code as they can leak information.",
-    suggestion: "Remove console.log or replace with a proper logging library (winston, pino).",
-    tip: "Use an ESLint rule (no-console) to catch these automatically.",
-    riskScore: 4,
-  },
-  {
-    id: "QAL002", pattern: /TODO|FIXME|HACK|XXX|TEMP/gi, severity: "Medium",
-    title: "TODO/FIXME comment found",
-    description: "Code contains unresolved TODO or FIXME comments indicating incomplete work.",
-    suggestion: "Address the TODO item or create a tracking issue, then remove the comment.",
-    tip: "Use IDE extensions to track and manage TODO comments across your project.",
-    riskScore: 3,
-  },
-  {
-    id: "QAL003", pattern: /catch\s*\(\s*\w*\s*\)\s*\{\s*\}/g, severity: "Medium",
-    title: "Empty catch block — errors silently swallowed",
-    description: "Empty catch blocks hide errors, making debugging extremely difficult.",
-    suggestion: "At minimum, log the error. Better: handle it properly or re-throw.",
-    tip: "Consider using error monitoring tools like Sentry to catch unhandled exceptions.",
-    riskScore: 5,
-  },
-  {
-    id: "QAL004", pattern: /var\s+\w/g, severity: "Medium",
-    title: "Usage of 'var' — prefer let/const",
-    description: "'var' has function scope and can lead to bugs due to hoisting. Modern JS uses let/const.",
-    suggestion: "Replace 'var' with 'const' (if not reassigned) or 'let' (if reassigned).",
-    tip: "Enable ESLint's no-var rule to enforce this automatically.",
-    riskScore: 3,
-  },
-  {
-    id: "QAL005", pattern: /==(?!=)|!=(?!=)/g, severity: "Medium",
-    title: "Loose equality operator (== or !=)",
-    description: "Loose equality performs type coercion which can lead to unexpected behavior.",
-    suggestion: "Use strict equality (=== and !==) to avoid type coercion bugs.",
-    tip: "ESLint's eqeqeq rule can enforce strict equality across your codebase.",
-    riskScore: 4,
-  },
-  {
-    id: "QAL006", pattern: /function\s+\w+\s*\([^)]{80,}\)/g, severity: "Medium",
-    title: "Function has too many parameters",
-    description: "Functions with many parameters are hard to use and maintain.",
-    suggestion: "Refactor to use an options/config object pattern instead of many positional parameters.",
-    tip: "The ideal maximum is 3 parameters. Use destructuring for clarity.",
-    riskScore: 4,
+    id: "SQL_INJECTION",
+    category: "sql_injection",
+    pattern: /SELECT\s+.+\s+FROM\s+.+\s+WHERE\s+.+['"\+]|db\.(?:query|execute|raw)\s*\(\s*['"`].*['"`]\s*\+/gi,
+    severity: "Critical",
+    title: "SQL Injection Risk via String Concatenation",
+    description: "Building SQL queries by concatenating variables directly allows malicious input to alter query logic.",
+    suggestion: "Use parameterized queries, placeholders (?), or a modern ORM (Prisma, Sequelize, Knex).",
+    tip: "Never construct SQL strings dynamically from untrusted user input.",
+    riskScore: 10
   },
 
-  // Performance — Medium
+  // 3. XSS Vulnerability
   {
-    id: "PRF001", pattern: /\.forEach\s*\(.*await/g, severity: "Medium",
-    title: "Await inside forEach — sequential execution",
-    description: "Using await inside forEach doesn't pause iteration; this can cause race conditions.",
-    suggestion: "Use a for...of loop for sequential execution, or Promise.all() for parallel.",
-    tip: "for...of + await is the correct pattern for sequential async iteration.",
-    riskScore: 5,
+    id: "XSS_INNERHTML",
+    category: "xss",
+    pattern: /innerHTML\s*=|dangerouslySetInnerHTML/gi,
+    severity: "High",
+    title: "Cross-Site Scripting (XSS) via innerHTML",
+    description: "Assigning unsanitized user input directly to innerHTML can allow malicious script injection in the browser.",
+    suggestion: "Use textContent for plain text, or pass HTML through a sanitizer like DOMPurify first.",
+    tip: "Modern frameworks like React default to escaping content—avoid overriding this behavior.",
+    riskScore: 8
   },
   {
-    id: "PRF002", pattern: /new Date\(\).*(?:while|for)\b|(?:while|for)\b.*new Date\(\)/g, severity: "Medium",
-    title: "Date created inside a loop",
-    description: "Creating Date objects inside loops is unnecessary and hurts performance.",
-    suggestion: "Move the Date creation outside the loop.",
-    tip: "Use performance.now() for timing operations instead of Date.",
-    riskScore: 3,
-  },
-
-  // Best Practice — Low
-  {
-    id: "BP001", pattern: /\/\/.*\n.*\/\/.*\n.*\/\/.*\n.*\/\/.*\n.*\/\//g, severity: "Low",
-    title: "Excessive inline comments",
-    description: "Too many inline comments can indicate code that needs better naming or refactoring.",
-    suggestion: "Write self-documenting code with clear variable and function names.",
-    tip: "Comments should explain WHY, not WHAT. Well-named code explains itself.",
-    riskScore: 1,
-  },
-  {
-    id: "BP002", pattern: /(?:if|else|for|while|switch)\s*\(.*\)\s*\n?\s*(?:if|else|for|while|switch)\s*\(.*\)\s*\n?\s*(?:if|else|for|while|switch)/g, severity: "Low",
-    title: "Deeply nested control flow detected",
-    description: "Deeply nested if/for/while blocks reduce readability and increase complexity.",
-    suggestion: "Extract nested logic into separate functions. Use early returns to reduce nesting.",
-    tip: "Aim for a maximum nesting depth of 2-3. Use guard clauses to flatten logic.",
-    riskScore: 2,
-  },
-  {
-    id: "BP003", pattern: /\.then\s*\(.*\.then\s*\(.*\.then/g, severity: "Low",
-    title: "Promise chain nesting (callback hell)",
-    description: "Deeply chained .then() calls are hard to read and maintain.",
-    suggestion: "Refactor to async/await syntax for cleaner, more readable asynchronous code.",
-    tip: "async/await is syntactic sugar over Promises and works with all Promise-based APIs.",
-    riskScore: 2,
-  },
-  {
-    id: "BP004", pattern: /import\s+.*\s+from\s+['"](?!\.)[^'"]+['"].*\n.*import\s+.*\s+from\s+['"](?!\.)/g, severity: "Low",
-    title: "Imports could be organized better",
-    description: "External and internal imports should be grouped and ordered consistently.",
-    suggestion: "Group imports: 1) built-in modules, 2) external packages, 3) internal modules.",
-    tip: "Use ESLint plugin import/order or Prettier to auto-sort imports.",
-    riskScore: 1,
-  },
-  {
-    id: "BP005", pattern: /\n{4,}/g, severity: "Low",
-    title: "Excessive blank lines",
-    description: "Multiple consecutive blank lines reduce code density and readability.",
-    suggestion: "Use a maximum of one blank line to separate logical sections.",
-    tip: "Configure Prettier's max-empty-lines option to enforce this.",
-    riskScore: 1,
+    id: "XSS_DOCWRITE",
+    category: "xss",
+    pattern: /document\.write\s*\(/gi,
+    severity: "High",
+    title: "Cross-Site Scripting (XSS) via document.write()",
+    description: "document.write() is a deprecated API that can cause security breaches and performance bottlenecks.",
+    suggestion: "Use safer DOM APIs like createElement() and appendChild().",
+    tip: "Most modern web applications block document.write by default.",
+    riskScore: 8
   },
 
-  // Dependency / Config
+  // 4. Insecure Dependency
   {
-    id: "DEP001", pattern: /"dependencies"\s*:\s*\{[^}]*"\*"/g, severity: "Critical",
-    title: "Wildcard dependency version detected",
-    description: "Using '*' for dependency versions can pull in breaking or malicious updates.",
-    suggestion: "Pin dependency versions or use semver ranges (^1.2.3).",
-    tip: "Use npm audit and renovatebot to keep dependencies secure and up to date.",
-    riskScore: 8,
+    id: "INSECURE_DEPENDENCY",
+    category: "insecure_dependency",
+    pattern: /"dependencies"\s*:\s*\{[^}]*"\*"/g,
+    severity: "High",
+    title: "Wildcard Dependency Version (*)",
+    description: "Using wildcard package versions pulls in untested, potentially breaking, or compromised dependency updates.",
+    suggestion: "Lock package versions or use standard semver ranges (e.g. ^1.2.0).",
+    tip: "Regularly execute `npm audit` or `yarn audit` to scan dependencies for known CVEs.",
+    riskScore: 7
+  },
+
+  // 5. Authentication Weakness
+  {
+    id: "WEAK_HASH",
+    category: "authentication_weakness",
+    pattern: /createHash\s*\(\s*['"](?:md5|sha1)/gi,
+    severity: "High",
+    title: "Weak Cryptographic Hashing Algorithm",
+    description: "Algorithms like MD5 and SHA-1 are cryptographically broken and prone to collision attacks.",
+    suggestion: "Upgrade to safer hashing standards like SHA-256, bcrypt, or Argon2.",
+    tip: "For passwords, always use salted slower algorithms like bcrypt.",
+    riskScore: 8
   },
   {
-    id: "ENV001", pattern: /^(?!#).*(?:PASSWORD|SECRET|KEY|TOKEN)\s*=.+/gim, severity: "Critical",
-    title: "Secret value in config/env file",
-    description: "This file contains secret values that may be committed to version control.",
-    suggestion: "Ensure this file is in .gitignore. Use environment variables in deployment.",
-    tip: "Use dotenv for local dev, and platform-native secrets (Render/Vercel env vars) in production.",
-    riskScore: 9,
+    id: "HARDCODED_PASSWORD",
+    category: "authentication_weakness",
+    pattern: /password\s*===\s*["'][^"']+["']/gi,
+    severity: "Critical",
+    title: "Hardcoded Password Comparison",
+    description: "Verifying user credentials against a static, hardcoded string is highly vulnerable to discovery.",
+    suggestion: "Verify password hashes retrieved from a database using secure compare methods.",
+    tip: "Implement managed auth services like Supabase Auth or Clerk for bulletproof user management.",
+    riskScore: 9
   },
+
+  // 6. Authorization Risk
+  {
+    id: "AUTHORIZATION_BYPASS",
+    category: "authorization_risk",
+    pattern: /role\s*===\s*null|\bcheckRole\b|\bhasRole\b/gi,
+    severity: "Medium",
+    title: "Weak Authorization Role Checking",
+    description: "Ensure that sensitive access checks perform positive authorization validations and verify scopes correctly.",
+    suggestion: "Enforce strict, centralized role-based access control (RBAC) middleware for sensitive routes.",
+    tip: "Implement attribute-based access control (ABAC) or standard RBAC tables in your database.",
+    riskScore: 6
+  },
+
+  // 7. Environment Misconfiguration
+  {
+    id: "DEBUG_MODE_ENABLED",
+    category: "environment_misconfiguration",
+    pattern: /debug\s*=\s*(?:true|1)|process\.env\.NODE_ENV\s*===\s*['"]development['"]/gi,
+    severity: "Medium",
+    title: "Debug Mode or Environment Flag Leak",
+    description: "Enabling detailed debug modes in production can leak system info, internal stack traces, and variables.",
+    suggestion: "Ensure debug options are controlled strictly by node environments (process.env.NODE_ENV === 'production').",
+    tip: "Disable debug headers in production proxies.",
+    riskScore: 5
+  },
+
+  // 8. Sensitive Data Exposure
+  {
+    id: "UNSAFE_LOGGING",
+    category: "sensitive_data_exposure",
+    pattern: /console\.(log|info|debug)\s*\(.*(?:password|secret|email|phone|ssn|token)/gi,
+    severity: "High",
+    title: "Unsafe Logging of Sensitive Information",
+    description: "Printing variables that hold secrets, credentials, or personal information (PII) exposes them in console logs.",
+    suggestion: "Filter or sanitize variables before logging them, or use a secure logger that masks private data.",
+    tip: "Winston or Pino loggers can mask sensitive fields like passwords automatically.",
+    riskScore: 8
+  },
+
+  // 9. General Vulnerability (e.g. eval, command injection)
+  {
+    id: "EVAL_USAGE",
+    category: "general_vulnerability",
+    pattern: /eval\s*\(/gi,
+    severity: "Critical",
+    title: "Arbitrary Code Execution via eval()",
+    description: "eval() executes any string passed to it, opening the door for complete system compromise.",
+    suggestion: "Refactor code to use JSON.parse() or specific functional handlers.",
+    tip: "eval is deprecated in performance and highly discouraged in security audits.",
+    riskScore: 9
+  },
+  {
+    id: "SHELL_EXECUTION",
+    category: "general_vulnerability",
+    pattern: /exec\s*\(\s*['"`]|child_process/gi,
+    severity: "Critical",
+    title: "Command Injection via Process Spawn",
+    description: "Invoking command shells dynamically can allow command injection attacks if arguments are raw user inputs.",
+    suggestion: "Use safer alternatives like execFile() or validate and escape all inputs rigorously.",
+    tip: "Never invoke process shells directly if standard library APIs can satisfy the requirement.",
+    riskScore: 9
+  }
 ];
 
-/** Analyze a single file's content and return issues found */
-function analyzeFile(filePath, content) {
+/** Analyze a single file's content and return issues found using static regex */
+function analyzeFileStatic(filePath, content) {
   const issues = [];
   const ext = filePath.lastIndexOf(".") >= 0 ? filePath.substring(filePath.lastIndexOf(".")).toLowerCase() : "";
 
@@ -453,51 +528,130 @@ function analyzeFile(filePath, content) {
   const avgLineLength = content.length / Math.max(1, content.split("\n").length);
   if (avgLineLength > 200) return issues;
 
-  for (const rule of analysisRules) {
-    // Reset regex lastIndex
-    rule.pattern.lastIndex = 0;
-    const matches = content.match(rule.pattern);
-    if (matches && matches.length > 0) {
-      // Find line number of first match
-      rule.pattern.lastIndex = 0;
-      const firstMatch = rule.pattern.exec(content);
-      let lineNumber = 0;
-      if (firstMatch) {
-        lineNumber = content.substring(0, firstMatch.index).split("\n").length;
-      }
+  const lines = content.split("\n");
 
-      issues.push({
-        ruleId: rule.id,
-        file_name: filePath,
-        issue_title: rule.title,
-        issue_description: `${rule.description} (${matches.length} occurrence${matches.length > 1 ? "s" : ""} found${lineNumber ? `, first at line ${lineNumber}` : ""})`,
-        severity: rule.severity,
-        suggestion: rule.suggestion,
-        optimization_tip: rule.tip,
-        risk_score: rule.riskScore,
-        occurrences: matches.length,
-      });
-    }
+  for (const rule of analysisRules) {
+    lines.forEach((line, idx) => {
+      // Reset regex lastIndex
+      rule.pattern.lastIndex = 0;
+      if (rule.pattern.test(line)) {
+        const lineNumber = idx + 1;
+        
+        // Extract 3 lines of context before and after
+        const start = Math.max(0, idx - 3);
+        const end = Math.min(lines.length - 1, idx + 3);
+        const snippetLines = lines.slice(start, end + 1);
+        const snippet = snippetLines.join("\n");
+
+        issues.push({
+          ruleId: rule.id,
+          category: rule.category || "general_vulnerability",
+          file_name: filePath,
+          issue_title: rule.title,
+          issue_description: rule.description,
+          severity: rule.severity,
+          suggestion: rule.suggestion,
+          optimization_tip: rule.tip || "",
+          risk_score: rule.riskScore || 1,
+          line_number: lineNumber,
+          snippet: snippet,
+          offending_line: line.trim()
+        });
+      }
+    });
   }
 
   return issues;
 }
 
+/** Analyze a single file's content and return issues found. Pre-filters with regex, and validates with Gemini 2.5 Flash. */
+async function analyzeFile(filePath, content) {
+  const potentialIssues = analyzeFileStatic(filePath, content);
+  if (potentialIssues.length === 0) {
+    return [];
+  }
+  
+  if (!process.env.GEMINI_API_KEY) {
+    console.log(`ℹ️ GEMINI_API_KEY not set - falling back to raw static regex rules for: ${filePath}`);
+    return potentialIssues;
+  }
+  
+  console.log(`🤖 Validating ${potentialIssues.length} issues in ${filePath} using Gemini 2.5 Flash...`);
+  return validateAndExplainIssuesWithGemini(filePath, potentialIssues);
+}
+
+function calculateSecurityScore(issues) {
+  let criticalCount = 0;
+  let highCount = 0;
+  let mediumCount = 0;
+  let lowCount = 0;
+
+  issues.forEach((issue) => {
+    if (!issue.issue_title) return;
+    // Skip placeholder rows
+    if (issue.issue_title.includes("complete — no issues found") || 
+        issue.issue_title.includes("failed — cannot access") ||
+        issue.issue_title.includes("Clean commit") ||
+        issue.issue_title.includes("Clean scan")) {
+      return;
+    }
+    const sev = String(issue.severity || "").toLowerCase();
+    if (sev === "critical") criticalCount++;
+    else if (sev === "high") highCount++;
+    else if (sev === "medium") mediumCount++;
+    else if (sev === "low") lowCount++;
+  });
+
+  const scoreDeductions = criticalCount * 15 + highCount * 10 + mediumCount * 5 + lowCount * 2;
+  const score = Math.max(0, 100 - scoreDeductions);
+  
+  let grade = "D";
+  if (score >= 95) grade = "A+";
+  else if (score >= 90) grade = "A";
+  else if (score >= 80) grade = "B";
+  else if (score >= 70) grade = "C";
+
+  return {
+    score,
+    grade,
+    criticalCount,
+    highCount,
+    mediumCount,
+    lowCount
+  };
+}
+
 /** Scan an entire repo: fetch files and analyze each one */
 async function scanRepository(repoFullName, userId, ref) {
+  const scanId = crypto.randomUUID();
+  console.log(`🔍 Starting full scan of ${repoFullName} for user ${userId}. Scan ID: ${scanId}`);
+
   // Fetch user's GitHub token from profiles
   let userToken = null;
   try {
     const { data: profile } = await supabase.from('profiles').select('github_token').eq('id', userId).single();
     if (profile && profile.github_token) userToken = profile.github_token;
   } catch {}
-  console.log(`🔍 Starting full scan of ${repoFullName} for user ${userId}`);
 
   let files;
   try {
     files = await fetchRepoTree(repoFullName, userToken);
   } catch (err) {
     console.error(`   ❌ Cannot access repo ${repoFullName}:`, err.message);
+    
+    // Create scan history entry even on error
+    await supabase.from("scan_history").insert({
+      id: scanId,
+      user_id: userId,
+      repository_name: repoFullName,
+      scan_date: new Date().toISOString(),
+      security_score: 0,
+      security_grade: 'D',
+      files_scanned: 0,
+      commit_id: "scan-error",
+      commit_message: "Scan failed"
+    });
+
     // Record error so user sees it on the dashboard
     await supabase.from("code_reviews").insert([{
       user_id: userId,
@@ -512,13 +666,12 @@ async function scanRepository(repoFullName, userId, ref) {
       commit_id: "scan-error",
       commit_message: "Scan failed",
       status: "Open",
+      scan_id: scanId
     }]);
     return { filesScanned: 0, issuesFound: 0, error: err.message };
   }
 
   console.log(`   Found ${files.length} code files to analyze`);
-
-  // Limit to 50 files per scan to stay within GitHub rate limits
   const filesToScan = files.slice(0, 50);
   const allIssues = [];
 
@@ -527,7 +680,7 @@ async function scanRepository(repoFullName, userId, ref) {
       const content = await fetchFileContent(repoFullName, file.path, ref, userToken);
       if (!content) continue;
 
-      const fileIssues = analyzeFile(file.path, content);
+      const fileIssues = await analyzeFile(file.path, content);
       for (const issue of fileIssues) {
         allIssues.push({
           user_id: userId,
@@ -542,12 +695,37 @@ async function scanRepository(repoFullName, userId, ref) {
           commit_id: ref || "initial-scan",
           commit_message: ref ? `Commit ${ref.substring(0, 7)}` : "Initial repository scan",
           status: "Open",
+          scan_id: scanId,
+          line_number: issue.line_number || null,
+          category: issue.category || "general_vulnerability",
+          secure_code: issue.secure_code || "",
+          best_practices: issue.best_practices || ""
         });
       }
     } catch (err) {
       console.error(`   ⚠️ Error analyzing ${file.path}:`, err.message);
     }
   }
+
+  // Calculate score & grade
+  const { score, grade, criticalCount, highCount, mediumCount, lowCount } = calculateSecurityScore(allIssues);
+
+  // Insert scan history row
+  await supabase.from("scan_history").insert({
+    id: scanId,
+    user_id: userId,
+    repository_name: repoFullName,
+    scan_date: new Date().toISOString(),
+    security_score: score,
+    security_grade: grade,
+    critical_issues: criticalCount,
+    high_issues: highCount,
+    medium_issues: mediumCount,
+    low_issues: lowCount,
+    files_scanned: filesToScan.length,
+    commit_id: ref || "initial-scan",
+    commit_message: ref ? `Commit ${ref.substring(0, 7)}` : "Initial repository scan"
+  });
 
   // Insert all issues in batches of 20
   if (allIssues.length > 0) {
@@ -574,16 +752,28 @@ async function scanRepository(repoFullName, userId, ref) {
       commit_id: ref || "initial-scan",
       commit_message: ref ? `Commit ${ref.substring(0, 7)}` : "Initial repository scan",
       status: "Resolved",
+      scan_id: scanId,
+      line_number: null,
+      category: "general_vulnerability",
+      secure_code: "",
+      best_practices: ""
     }]);
     console.log(`   ✅ Clean scan for ${repoFullName} (no issues)`);
   }
 
-  return { filesScanned: filesToScan.length, issuesFound: allIssues.length };
+  // Increment subscription monthly scans used
+  const { error: rpcErr } = await supabase.rpc("increment_monthly_scans", { user_id_param: userId });
+  if (rpcErr) {
+    console.error("❌ Failed to increment scans used:", rpcErr.message);
+  }
+
+  return { filesScanned: filesToScan.length, issuesFound: allIssues.length, score, grade };
 }
 
 /** Analyze only specific files (for webhook pushes) */
 async function analyzeChangedFiles(repoFullName, userId, filePaths, commitId, commitMessage) {
-  console.log(`🔍 Analyzing ${filePaths.length} changed files in ${repoFullName}`);
+  const scanId = crypto.randomUUID();
+  console.log(`🔍 Analyzing ${filePaths.length} changed files in ${repoFullName}. Scan ID: ${scanId}`);
 
   let userToken = null;
   try {
@@ -619,7 +809,7 @@ async function analyzeChangedFiles(repoFullName, userId, filePaths, commitId, co
       const content = await fetchFileContent(repoFullName, filePath, commitId, userToken);
       if (!content) continue;
 
-      const fileIssues = analyzeFile(filePath, content);
+      const fileIssues = await analyzeFile(filePath, content);
       for (const issue of fileIssues) {
         allIssues.push({
           user_id: userId,
@@ -634,12 +824,37 @@ async function analyzeChangedFiles(repoFullName, userId, filePaths, commitId, co
           commit_id: commitId || "unknown",
           commit_message: commitMessage || "No message",
           status: "Open",
+          scan_id: scanId,
+          line_number: issue.line_number || null,
+          category: issue.category || "general_vulnerability",
+          secure_code: issue.secure_code || "",
+          best_practices: issue.best_practices || ""
         });
       }
     } catch (err) {
       console.error(`   ⚠️ Error analyzing ${filePath}:`, err.message);
     }
   }
+
+  // Calculate score & grade
+  const { score, grade, criticalCount, highCount, mediumCount, lowCount } = calculateSecurityScore(allIssues);
+
+  // Insert scan history row
+  await supabase.from("scan_history").insert({
+    id: scanId,
+    user_id: userId,
+    repository_name: repoFullName,
+    scan_date: new Date().toISOString(),
+    security_score: score,
+    security_grade: grade,
+    critical_issues: criticalCount,
+    high_issues: highCount,
+    medium_issues: mediumCount,
+    low_issues: lowCount,
+    files_scanned: codeFiles.length,
+    commit_id: commitId || "unknown",
+    commit_message: commitMessage || "No message"
+  });
 
   if (allIssues.length > 0) {
     for (let i = 0; i < allIssues.length; i += 20) {
@@ -663,8 +878,19 @@ async function analyzeChangedFiles(repoFullName, userId, filePaths, commitId, co
       commit_id: commitId || "unknown",
       commit_message: commitMessage || "No message",
       status: "Resolved",
+      scan_id: scanId,
+      line_number: null,
+      category: "general_vulnerability",
+      secure_code: "",
+      best_practices: ""
     }]);
     console.log(`   ✅ Clean push to ${repoFullName}`);
+  }
+
+  // Increment subscription monthly scans used
+  const { error: rpcErr } = await supabase.rpc("increment_monthly_scans", { user_id_param: userId });
+  if (rpcErr) {
+    console.error("❌ Failed to increment scans used:", rpcErr.message);
   }
 
   return { filesScanned: codeFiles.length, issuesFound: allIssues.length };
@@ -684,26 +910,31 @@ app.get("/api/public/stats", async (_req, res) => {
   try {
     console.log("📊 Fetching public stats...");
     
-    // Count all code reviews (issues detected)
+    // Count all code reviews (vulnerabilities found)
     const { count: totalReviews, error: reviewsErr } = await supabase
       .from("code_reviews")
       .select("id", { count: "exact", head: true });
-    
-    if (reviewsErr) {
-      console.log("⚠️ public/stats code_reviews error:", reviewsErr.message);
-    } else {
-      console.log(`📊 Total reviews: ${totalReviews}`);
-    }
 
-    // Count all repositories
+    // Count resolved/fixed issues
+    const { count: resolvedReviews } = await supabase
+      .from("code_reviews")
+      .select("id", { count: "exact", head: true })
+      .ilike("status", "resolved");
+    
+    // Count all repositories (repositories scanned)
     const { count: totalRepos, error: reposErr } = await supabase
       .from("user_repositories")
       .select("id", { count: "exact", head: true });
+
+    // Count unique organizations/owners
+    let orgsCount = 0;
+    const { data: reposData } = await supabase
+      .from("user_repositories")
+      .select("repo_full_name");
     
-    if (reposErr) {
-      console.log("⚠️ public/stats user_repositories error:", reposErr.message);
-    } else {
-      console.log(`📊 Total repos: ${totalRepos}`);
+    if (reposData && reposData.length > 0) {
+      const orgs = new Set(reposData.map(r => r.repo_full_name.split("/")[0]));
+      orgsCount = orgs.size;
     }
 
     // Try to get users from auth.admin
@@ -712,12 +943,9 @@ app.get("/api/public/stats", async (_req, res) => {
       const { data: usersData, error: usersErr } = await supabase.auth.admin.listUsers({ perPage: 1000 });
       if (!usersErr && usersData?.users) {
         totalUsers = usersData.users.length;
-        console.log(`📊 Total users from auth.admin: ${totalUsers}`);
-      } else if (usersErr) {
-        console.log("⚠️ public/stats auth.admin error:", usersErr.message);
       }
     } catch (authErr) {
-      console.log("⚠️ public/stats: auth.admin.listUsers() failed:", authErr.message);
+      console.log("⚠️ public/stats auth.admin error:", authErr.message);
     }
 
     // Fallback: count unique users from activity log
@@ -731,21 +959,41 @@ app.get("/api/public/stats", async (_req, res) => {
         const uniqueUserIds = new Set(activityData.filter(a => a.user_id).map(a => a.user_id));
         const uniqueEmails = new Set(activityData.filter(a => a.email).map(a => a.email.toLowerCase()));
         totalUsers = Math.max(uniqueUserIds.size, uniqueEmails.size);
-        console.log(`📊 Total users from activity fallback: ${totalUsers}`);
       }
     }
 
+    // No baseline offsets - return exact counts
     const stats = {
-      totalReviews: totalReviews || 0,
+      reposScanned: totalRepos || 0,
+      vulnerabilitiesFound: totalReviews || 0,
+      issuesFixed: resolvedReviews || 0,
+      activeDevelopers: totalUsers || 0,
+      orgsProtected: orgsCount || 0,
+      
+      // Supporting Landing.tsx keys
       totalRepos: totalRepos || 0,
-      totalUsers,
+      totalReviews: totalReviews || 0,
+      totalUsers: totalUsers || 0,
+      resolvedReviews: resolvedReviews || 0,
+      orgsCount: orgsCount || 0
     };
     
     console.log("📊 Public stats response:", stats);
     return res.json(stats);
   } catch (err) {
     console.error("❌ Public stats error:", err);
-    return res.json({ totalReviews: 0, totalRepos: 0, totalUsers: 0 });
+    return res.json({
+      reposScanned: 0,
+      vulnerabilitiesFound: 0,
+      issuesFixed: 0,
+      activeDevelopers: 0,
+      orgsProtected: 0,
+      totalRepos: 0,
+      totalReviews: 0,
+      totalUsers: 0,
+      resolvedReviews: 0,
+      orgsCount: 0
+    });
   }
 });
 
@@ -838,9 +1086,11 @@ app.get("/api/repositories", authMiddleware, async (req, res) => {
         name: ur.repo_full_name,
         totalReviews: 0,
         critical: 0,
+        high: 0,
         medium: 0,
         low: 0,
         criticalOpen: 0,
+        highOpen: 0,
         mediumOpen: 0,
         lowOpen: 0,
         open: 0,
@@ -860,6 +1110,7 @@ app.get("/api/repositories", authMiddleware, async (req, res) => {
       repo.totalReviews++;
       const sev = (r.severity || "").toLowerCase();
       if (sev === "critical") repo.critical++;
+      else if (sev === "high") repo.high++;
       else if (sev === "medium") repo.medium++;
       else repo.low++;
 
@@ -869,6 +1120,7 @@ app.get("/api/repositories", authMiddleware, async (req, res) => {
       } else {
         repo.open++;
         if (sev === "critical") repo.criticalOpen++;
+        else if (sev === "high") repo.highOpen++;
         else if (sev === "medium") repo.mediumOpen++;
         else repo.lowOpen++;
       }
@@ -895,7 +1147,7 @@ app.get("/api/repositories", authMiddleware, async (req, res) => {
         healthScore = Math.round(avg);
       } else {
         const filesBase = Math.max(r.files.size || 0, 1);
-        const weightedOpenIssues = r.criticalOpen * 35 + r.mediumOpen * 12 + r.lowOpen * 4;
+        const weightedOpenIssues = r.criticalOpen * 35 + r.highOpen * 20 + r.mediumOpen * 12 + r.lowOpen * 4;
         const penalty = Math.round(weightedOpenIssues / filesBase);
         healthScore = Math.max(0, Math.min(100, 100 - penalty));
       }
@@ -904,6 +1156,7 @@ app.get("/api/repositories", authMiddleware, async (req, res) => {
         name: r.name,
         totalReviews: r.totalReviews,
         critical: r.critical,
+        high: r.high,
         medium: r.medium,
         low: r.low,
         open: r.open,
@@ -1062,16 +1315,374 @@ app.get("/api/stats", authMiddleware, async (req, res) => {
     }
 
     const reviews = data || [];
+    const critical = reviews.filter((r) => r.severity?.toLowerCase() === "critical").length;
+    const high = reviews.filter((r) => r.severity?.toLowerCase() === "high").length;
+    const medium = reviews.filter((r) => r.severity?.toLowerCase() === "medium").length;
+    const low = reviews.filter((r) => r.severity?.toLowerCase() === "low").length;
+
+    // AI Fixes Available: open issues having a suggestion that is not empty
+    const fixesAvailable = reviews.filter((r) => r.suggestion && r.suggestion.trim() !== "" && r.status?.toLowerCase() === "open").length;
+
+    // Security Score calculation
+    // Max penalty is 100.
+    // Each open critical: penalty 25
+    // Each open high: penalty 15
+    // Each open medium: penalty 8
+    // Each open low: penalty 2
+    const openReviews = reviews.filter((r) => r.status?.toLowerCase() === "open");
+    const openCrit = openReviews.filter((r) => r.severity?.toLowerCase() === "critical").length;
+    const openHigh = openReviews.filter((r) => r.severity?.toLowerCase() === "high").length;
+    const openMed = openReviews.filter((r) => r.severity?.toLowerCase() === "medium").length;
+    const openLow = openReviews.filter((r) => r.severity?.toLowerCase() === "low").length;
+
+    const penalty = openCrit * 25 + openHigh * 15 + openMed * 8 + openLow * 2;
+    const securityScore = Math.max(0, 100 - penalty);
+
     return res.json({
       totalReviews: reviews.length,
-      critical: reviews.filter((r) => r.severity?.toLowerCase() === "critical").length,
-      medium: reviews.filter((r) => r.severity?.toLowerCase() === "medium").length,
-      low: reviews.filter((r) => r.severity?.toLowerCase() === "low").length,
+      critical,
+      high,
+      medium,
+      low,
+      fixesAvailable,
+      securityScore,
       open: reviews.filter((r) => r.status?.toLowerCase() === "open").length,
       resolved: reviews.filter((r) => r.status?.toLowerCase() === "resolved").length,
     });
   } catch (err) {
     return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ============================
+// API: Get user's scan history
+// ============================
+app.get("/api/scan-history", authMiddleware, async (req, res) => {
+  try {
+    const { repo } = req.query;
+    let query = req.supabase
+      .from("scan_history")
+      .select("*")
+      .eq("user_id", req.user.id)
+      .order("scan_date", { ascending: false });
+
+    if (repo) {
+      query = query.eq("repository_name", repo);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+    return res.json(data || []);
+  } catch (err) {
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ============================
+// API: Submit beta feedback
+// ============================
+app.post("/api/feedback", authMiddleware, async (req, res) => {
+  try {
+    const { category, feedback, rating, email } = req.body;
+    if (!category || !feedback) {
+      return res.status(400).json({ error: "Missing category or feedback message" });
+    }
+    const { error } = await supabase.from("beta_feedback").insert({
+      user_id: req.user.id,
+      email: email || req.user.email,
+      feedback_type: category, // 'bug' | 'feature_request' | 'satisfaction' | 'general'
+      rating: rating || null,
+      message: feedback,
+    });
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("❌ Submit feedback error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ============================
+// API: Get community leaderboard (Public)
+// ============================
+app.get("/api/leaderboard", async (req, res) => {
+  try {
+    const { data: scans, error } = await supabase
+      .from("scan_history")
+      .select("*")
+      .order("scan_date", { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    const latestRepoScans = {};
+    const firstRepoScans = {};
+
+    scans.forEach((scan) => {
+      const repo = scan.repository_name;
+      if (!latestRepoScans[repo]) {
+        latestRepoScans[repo] = scan;
+      }
+      firstRepoScans[repo] = scan;
+    });
+
+    const leaderboard = [];
+    const repoNames = Object.keys(latestRepoScans);
+    for (const repo of repoNames) {
+      const latest = latestRepoScans[repo];
+      const earliest = firstRepoScans[repo];
+      
+      const scoreDiff = latest.security_score - earliest.security_score;
+      const isImproved = scoreDiff > 0;
+      const owner = repo.split("/")[0] || "unknown";
+
+      leaderboard.push({
+        rank: 0,
+        repository_name: repo,
+        owner: owner,
+        security_score: latest.security_score,
+        security_grade: latest.security_grade,
+        critical_issues: latest.critical_issues || 0,
+        high_issues: latest.high_issues || 0,
+        medium_issues: latest.medium_issues || 0,
+        low_issues: latest.low_issues || 0,
+        last_scan_date: latest.scan_date,
+        score_improvement: scoreDiff,
+        most_improved: isImproved
+      });
+    }
+
+    leaderboard.sort((a, b) => {
+      if (b.security_score !== a.security_score) {
+        return b.security_score - a.security_score;
+      }
+      const aCritical = a.critical_issues;
+      const bCritical = b.critical_issues;
+      if (aCritical !== bCritical) {
+        return aCritical - bCritical;
+      }
+      return a.repository_name.localeCompare(b.repository_name);
+    });
+
+    leaderboard.forEach((entry, idx) => {
+      entry.rank = idx + 1;
+    });
+
+    return res.json(leaderboard);
+  } catch (err) {
+    console.error("❌ Leaderboard Error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ============================
+// API: Public Scan Report (No Auth Required)
+// ============================
+app.get("/api/public/reports/:scanId", async (req, res) => {
+  try {
+    const { scanId } = req.params;
+    
+    const { data: scan, error: scanErr } = await supabase
+      .from("scan_history")
+      .select("*")
+      .eq("id", scanId)
+      .single();
+
+    if (scanErr || !scan) {
+      return res.status(404).json({ error: "Report not found" });
+    }
+
+    const { data: reviews, error: reviewsErr } = await supabase
+      .from("code_reviews")
+      .select("*")
+      .eq("scan_id", scanId)
+      .order("severity", { ascending: false });
+
+    if (reviewsErr) {
+      return res.status(500).json({ error: reviewsErr.message });
+    }
+
+    return res.json({
+      scan,
+      reviews: reviews || []
+    });
+  } catch (err) {
+    console.error("❌ Public report error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ============================
+// API: Generate & stream PDF report
+// ============================
+app.get(["/api/reports/download", "/api/reports/pdf"], async (req, res) => {
+  try {
+    const { scanId, repo } = req.query;
+    
+    // Check if authenticated
+    let user = null;
+    let client = supabase; // default admin client
+    
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const token = authHeader.split(" ")[1];
+      const { data: { user: authUser } } = await supabase.auth.getUser(token);
+      if (authUser) {
+        user = authUser;
+        client = supabaseForUser(token);
+      }
+    }
+
+    // Fallback: If no auth, we ONLY allow downloading if scanId is provided
+    if (!user && !scanId) {
+      return res.status(401).json({ error: "Missing authorization token" });
+    }
+
+    let reviews = [];
+    let summary = { total: 0, critical: 0, high: 0, medium: 0, low: 0 };
+    let repositoryName = repo || "All Repositories";
+    let securityScore = null;
+    let securityGrade = null;
+    let userEmail = user ? user.email : "developer@codeaurora.sentinel";
+
+    if (scanId) {
+      const { data: scan } = await client
+        .from("scan_history")
+        .select("*")
+        .eq("id", scanId)
+        .single();
+      
+      if (scan) {
+        repositoryName = scan.repository_name;
+        securityScore = scan.security_score;
+        securityGrade = scan.security_grade;
+        summary = {
+          total: 0,
+          critical: scan.critical_issues || 0,
+          high: scan.high_issues || 0,
+          medium: scan.medium_issues || 0,
+          low: scan.low_issues || 0
+        };
+      }
+
+      const { data: revs } = await client
+        .from("code_reviews")
+        .select("*")
+        .eq("scan_id", scanId);
+      
+      reviews = revs || [];
+    } else {
+      let query = client
+        .from("code_reviews")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+      
+      if (repo) {
+        query = query.eq("repository_name", repo);
+      }
+
+      const { data: revs } = await query;
+      reviews = (revs || []).filter((r) => {
+        const title = String(r.issue_title || "").toLowerCase();
+        return !(title.includes("no issues found") || title.includes("scan complete") || title.includes("clean commit"));
+      });
+
+      reviews.forEach((r) => {
+        const sev = String(r.severity || "").toLowerCase();
+        if (sev === "critical") summary.critical++;
+        else if (sev === "high") summary.high++;
+        else if (sev === "medium") summary.medium++;
+        else if (sev === "low") summary.low++;
+      });
+    }
+
+    summary.total = reviews.length;
+
+    const pdfBuffer = await buildIssueReportPdfBuffer({
+      userEmail,
+      issues: reviews,
+      summary,
+      extra: {
+        repositoryName,
+        securityScore,
+        securityGrade
+      }
+    });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="sentinel-security-report-${Date.now()}.pdf"`);
+    return res.send(pdfBuffer);
+  } catch (err) {
+    console.error("❌ PDF Stream Error:", err);
+    return res.status(500).json({ error: err.message || "Failed to generate report" });
+  }
+});
+
+// ============================
+// API: Dynamic Repository SVG Badges (Public)
+// ============================
+app.get("/api/repositories/badge/:owner/:repo", async (req, res) => {
+  try {
+    const { owner, repo } = req.params;
+    const repoFullName = `${owner}/${repo}`;
+    
+    const { data: scan } = await supabase
+      .from("scan_history")
+      .select("security_grade, security_score")
+      .eq("repository_name", repoFullName)
+      .order("scan_date", { ascending: false })
+      .limit(1)
+      .single();
+
+    let grade = "N/A";
+    let score = null;
+    if (scan) {
+      grade = scan.security_grade || "N/A";
+      score = scan.security_score;
+    }
+
+    let badgeColor = "#555555";
+    if (grade.startsWith("A")) badgeColor = "#10B981";
+    else if (grade.startsWith("B") || grade.startsWith("C")) badgeColor = "#F59E0B";
+    else if (grade.startsWith("D")) badgeColor = "#EF4444";
+
+    const gradeText = score !== null ? `Grade ${grade} (${score}%)` : "No scans";
+    
+    const svg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="165" height="20">
+  <linearGradient id="b" x2="0" y2="100%">
+    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
+    <stop offset="1" stop-opacity=".1"/>
+  </linearGradient>
+  <mask id="a">
+    <rect width="165" height="20" rx="3" fill="#fff"/>
+  </mask>
+  <g mask="url(#a)">
+    <rect width="85" height="20" fill="#24292e"/>
+    <rect x="85" width="80" height="20" fill="${badgeColor}"/>
+    <rect width="165" height="20" fill="url(#b)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="DejaVu Sans,Verdana,Geneva,sans-serif" font-size="11">
+    <text x="42.5" y="15" fill="#010101" fill-opacity=".3">Sentinel AI</text>
+    <text x="42.5" y="14">Sentinel AI</text>
+    <text x="125" y="15" fill="#010101" fill-opacity=".3">${gradeText}</text>
+    <text x="125" y="14">${gradeText}</text>
+  </g>
+</svg>
+`.trim();
+
+    res.setHeader("Content-Type", "image/svg+xml");
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    return res.send(svg);
+  } catch (err) {
+    console.error("❌ Badge generation error:", err);
+    return res.status(500).send("Internal Server Error");
   }
 });
 
@@ -1177,6 +1788,19 @@ app.patch("/api/reviews/:id", authMiddleware, async (req, res) => {
 app.post("/webhook/github/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
+    
+    // Check subscription plan limits before running the scan
+    const { data: sub } = await supabase
+      .from("subscriptions")
+      .select("monthly_scans_used, monthly_scans_limit")
+      .eq("user_id", userId)
+      .single();
+      
+    if (sub && sub.monthly_scans_used >= sub.monthly_scans_limit) {
+      console.log(`⚠️ Webhook push scan skipped for user ${userId}: limit reached (${sub.monthly_scans_used}/${sub.monthly_scans_limit})`);
+      return res.status(403).send("Monthly scan limit reached");
+    }
+
     const event = req.headers["x-github-event"] || "unknown";
     const payload = getGithubPayload(req);
     console.log(`✅ Webhook received for user ${userId} — event: ${event}`);
@@ -1241,17 +1865,26 @@ app.post("/webhook/github", async (req, res) => {
 
     const { data: userRepo } = await supabase
       .from("user_repositories")
-      .select("user_id")
+      .select("user_id, webhook_secret")
       .eq("repo_full_name", repository)
       .limit(1)
       .single();
 
     const userId = userRepo?.user_id || null;
 
-    // Respond immediately
-    res.status(200).send("OK");
+    if (!userId) {
+      console.log(`⚠️ Legacy Webhook: Repo ${repository} not connected to any user`);
+      return res.status(404).send("Repository not found or user not connected");
+    }
 
-    if (!userId) return;
+    // Verify webhook signature if secret is configured
+    if (userRepo.webhook_secret && !verifyGithubSignature(req, userRepo.webhook_secret)) {
+      console.log(`❌ Legacy Webhook signature verification failed for repo: ${repository}`);
+      return res.status(401).send("Invalid signature");
+    }
+
+    // Respond immediately, then analyze in background
+    res.status(200).send("OK");
 
     const allFiles = extractChangedFiles(payload);
 
@@ -1289,6 +1922,19 @@ app.post("/api/repositories/scan", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "Provide repo as owner/repo" });
     }
 
+    // Check subscription plan limits
+    const { data: sub } = await supabase
+      .from("subscriptions")
+      .select("monthly_scans_used, monthly_scans_limit")
+      .eq("user_id", req.user.id)
+      .single();
+      
+    if (sub && sub.monthly_scans_used >= sub.monthly_scans_limit) {
+      return res.status(403).json({
+        error: `Monthly scan limit reached (${sub.monthly_scans_used}/${sub.monthly_scans_limit}). Please upgrade your plan in the Billing tab to trigger more scans.`,
+      });
+    }
+
     const { data: userRepo } = await req.supabase
       .from("user_repositories")
       .select("*")
@@ -1313,6 +1959,132 @@ app.post("/api/repositories/scan", authMiddleware, async (req, res) => {
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
+// ============================
+// API: Cashfree Billing
+// ============================
+const {
+  createCashfreeOrder,
+  verifyCashfreeOrder,
+  getLimitFromTier,
+  getPlanDurationDays,
+} = require("./cashfreeService");
+
+app.post("/api/billing/checkout", authMiddleware, async (req, res) => {
+  try {
+    const { tier, billingPeriod } = req.body;
+    if (!tier || !["basic", "startup"].includes(tier)) {
+      return res.status(400).json({ error: "Invalid plan tier" });
+    }
+    const period = billingPeriod === "yearly" ? "yearly" : "monthly";
+
+    const order = await createCashfreeOrder(req.user.id, req.user.email, tier, period);
+
+    // Store the pending order reference in the subscription row
+    await supabase
+      .from("subscriptions")
+      .update({
+        cashfree_order_id: order.orderId,
+        payment_provider: "cashfree",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", req.user.id);
+
+    return res.json({ checkoutUrl: order.paymentLink });
+  } catch (err) {
+    console.error("/api/billing/checkout error:", err.message);
+    return res.status(500).json({ error: err.message || "Failed to create checkout" });
+  }
+});
+
+app.post("/api/billing/verify", authMiddleware, async (req, res) => {
+  try {
+    const { orderId } = req.body;
+    if (!orderId || typeof orderId !== "string") {
+      return res.status(400).json({ error: "orderId is required" });
+    }
+
+    // Sanitize orderId: only allow alphanumeric, underscores, hyphens
+    const sanitizedOrderId = orderId.replace(/[^a-zA-Z0-9_\-]/g, "");
+    if (sanitizedOrderId !== orderId || sanitizedOrderId.length > 100) {
+      return res.status(400).json({ error: "Invalid orderId format" });
+    }
+
+    // SECURITY: Verify payment status directly with Cashfree API
+    const result = await verifyCashfreeOrder(sanitizedOrderId);
+
+    if (result.orderStatus === "PAID") {
+      const tier = result.tier || "basic";
+      const period = result.period || "monthly";
+      const durationDays = getPlanDurationDays(period);
+      const periodEnd = new Date();
+      periodEnd.setDate(periodEnd.getDate() + durationDays);
+
+      const { error: updateErr } = await supabase
+        .from("subscriptions")
+        .update({
+          plan_tier: tier,
+          status: "active",
+          current_period_end: periodEnd.toISOString(),
+          monthly_scans_used: 0,
+          monthly_scans_limit: getLimitFromTier(tier),
+          cashfree_order_id: sanitizedOrderId,
+          cashfree_payment_id: result.cfOrderId || null,
+          payment_provider: "cashfree",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", req.user.id);
+
+      if (updateErr) {
+        console.error("❌ Failed to update subscription:", updateErr.message);
+        return res.status(500).json({ error: "Failed to activate plan" });
+      }
+
+      console.log(`✅ Plan activated for user ${req.user.id}: ${tier} (${period})`);
+      return res.json({
+        success: true,
+        plan_tier: tier,
+        status: "active",
+        current_period_end: periodEnd.toISOString(),
+      });
+    } else {
+      console.log(`⚠️ Order ${sanitizedOrderId} status: ${result.orderStatus} (not PAID)`);
+      return res.json({
+        success: false,
+        orderStatus: result.orderStatus,
+        message: "Payment has not been completed yet",
+      });
+    }
+  } catch (err) {
+    console.error("/api/billing/verify error:", err.message);
+    return res.status(500).json({ error: err.message || "Payment verification failed" });
+  }
+});
+
+app.get("/api/billing/status", authMiddleware, async (req, res) => {
+  try {
+    const { data: sub, error: subErr } = await supabase
+      .from("subscriptions")
+      .select("*")
+      .eq("user_id", req.user.id)
+      .single();
+
+    if (subErr || !sub) {
+      // Auto-backfill a free tier row
+      const { data: newSub } = await supabase
+        .from("subscriptions")
+        .insert({ user_id: req.user.id, plan_tier: "free", monthly_scans_limit: 5 })
+        .select()
+        .single();
+      return res.json(newSub || { plan_tier: "free", monthly_scans_used: 0, monthly_scans_limit: 5 });
+    }
+
+    return res.json(sub);
+  } catch (err) {
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 
 // ============================
 // Admin Middleware
@@ -1387,7 +2159,7 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
     }
 
     // Activity log stats - get more records for better counting
-    const { data: activityData } = await supabase
+    const { data: activityData } = await req.supabase
       .from("user_activity_log")
       .select("*")
       .order("created_at", { ascending: false })
@@ -1397,14 +2169,17 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
 
     // Fallback: count unique users from activity log if auth.admin didn't return users
     if (allUsers.length === 0 && activities.length > 0) {
-      // Build a map of email -> earliest activity date (as a proxy for signup date)
       const userFirstActivity = new Map();
-      // Process in reverse order (oldest first) so we get earliest dates
+      const userUuidMap = new Map();
+      
       [...activities].reverse().forEach((a) => {
         if (a.email) {
           const emailLower = a.email.toLowerCase();
           if (!userFirstActivity.has(emailLower)) {
             userFirstActivity.set(emailLower, a.created_at);
+          }
+          if (a.user_id && a.user_id.length > 20 && !a.user_id.startsWith("fallback-")) {
+            userUuidMap.set(emailLower, a.user_id);
           }
         }
       });
@@ -1412,19 +2187,21 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
       const fallbackCount = userFirstActivity.size;
       console.log(`📊 Using fallback user count from activity log: ${fallbackCount}`);
       
-      // Create synthetic user entries with their first activity as created_at
-      allUsers = Array.from(userFirstActivity.entries()).map(([email, firstActivity], idx) => ({
-        id: `fallback-${idx}`,
-        email,
-        created_at: firstActivity, // Use first activity as signup proxy
-        last_sign_in_at: null,
-        email_confirmed_at: null,
-        app_metadata: { provider: 'unknown' },
-      }));
+      allUsers = Array.from(userFirstActivity.entries()).map(([email, firstActivity], idx) => {
+        const realId = userUuidMap.get(email) || `fallback-${idx}`;
+        return {
+          id: realId,
+          email,
+          created_at: firstActivity,
+          last_sign_in_at: firstActivity,
+          email_confirmed_at: firstActivity,
+          app_metadata: { provider: 'email' },
+        };
+      });
     }
 
     // Code reviews count
-    const { count: totalReviews, error: reviewsErr } = await supabase
+    const { count: totalReviews, error: reviewsErr } = await req.supabase
       .from("code_reviews")
       .select("id", { count: "exact", head: true });
     
@@ -1433,7 +2210,7 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
     }
 
     // Repositories count
-    const { count: totalRepos, error: reposErr } = await supabase
+    const { count: totalRepos, error: reposErr } = await req.supabase
       .from("user_repositories")
       .select("id", { count: "exact", head: true });
     
@@ -1442,7 +2219,7 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
     }
 
     // Code reviews (all fields for admin view)
-    const { data: allReviews, error: reviewsDataErr } = await supabase
+    const { data: allReviews, error: reviewsDataErr } = await req.supabase
       .from("code_reviews")
       .select("*")
       .order("created_at", { ascending: false });
@@ -1451,19 +2228,44 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
       console.log("⚠️ Error fetching code_reviews data:", reviewsDataErr.message);
     }
 
-    const reviews = allReviews || [];
+    // Map reviews to match the frontend expectations
+    const reviews = (allReviews || []).map((r) => ({
+      id: r.id,
+      user_id: r.user_id,
+      repo_name: r.repository_name || "Unknown",
+      file_path: r.file_name || "—",
+      issue_type: r.issue_title || "Scan Issue",
+      severity: r.severity || "Low",
+      status: r.status || "Open",
+      message: r.issue_description || "No description",
+      line_number: r.line_number || null,
+      suggestion: r.suggestion || null,
+      created_at: r.created_at,
+    }));
     
-    // All repositories for admin view
-    const { data: allRepos, error: reposDataErr } = await supabase
+    // All repositories for admin view (ordering by connected_at as created_at doesn't exist)
+    const { data: allRepos, error: reposDataErr } = await req.supabase
       .from("user_repositories")
       .select("*")
-      .order("created_at", { ascending: false });
+      .order("connected_at", { ascending: false });
     
     if (reposDataErr) {
       console.log("⚠️ Error fetching user_repositories data:", reposDataErr.message);
     }
     
-    const repositories = allRepos || [];
+    // Map repositories to match frontend expectations
+    const repositories = (allRepos || []).map((repo) => {
+      const parts = repo.repo_full_name ? repo.repo_full_name.split("/") : [];
+      return {
+        id: repo.id,
+        user_id: repo.user_id,
+        repo_name: parts[1] || repo.repo_full_name || "Unknown",
+        github_owner: parts[0] || "Unknown",
+        is_connected: true,
+        last_scan_at: null,
+        created_at: repo.connected_at,
+      };
+    });
     
     // Log stats for debugging
     console.log(`📊 Admin Dashboard Stats: Users=${allUsers.length}, Repos=${totalRepos || 0}, Reviews=${totalReviews || 0}`);
@@ -1536,18 +2338,118 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
       reviewsByDay.push({ date: dayLabel, count });
     }
 
-    // Users list (sanitized)
-    const users = allUsers.map((u) => ({
-      id: u.id,
-      email: u.email,
-      createdAt: u.created_at,
-      lastSignIn: u.last_sign_in_at,
-      emailConfirmed: !!u.email_confirmed_at,
-      provider: u.app_metadata?.provider || "email",
-    }));
+    // Fetch subscription details to compile SaaS metrics
+    const { data: subscriptionsData, error: subsErr } = await req.supabase
+      .from("subscriptions")
+      .select("*");
+    
+    if (subsErr) {
+      console.log("⚠️ Error fetching subscriptions for admin:", subsErr.message);
+    }
+    
+    const subscriptionsList = subscriptionsData || [];
+    const subsMap = new Map();
+    subscriptionsList.forEach((s) => {
+      subsMap.set(s.user_id, s);
+    });
+
+    // Fetch profiles to check for GitHub tokens
+    const { data: profilesData } = await req.supabase
+      .from("profiles")
+      .select("id, github_token");
+    
+    const githubUserIds = new Set();
+    if (profilesData) {
+      profilesData.forEach(p => {
+        if (p.github_token) {
+          githubUserIds.add(p.id);
+        }
+      });
+    }
+
+    // Users list (sanitized and enriched with subscription quotas & tiers)
+    const users = allUsers.map((u) => {
+      const sub = subsMap.get(u.id) || {};
+      
+      // Determine provider dynamically based on profiles or connected repos
+      const hasGithub = githubUserIds.has(u.id) || (repositories && repositories.some(r => r.user_id === u.id));
+      const provider = hasGithub ? "github" : (u.app_metadata?.provider || "email");
+      
+      // Heuristic for email confirmation: verified if confirmed in Supabase, connected to GitHub, or has payments/scans activity
+      const emailConfirmed = !!u.email_confirmed_at || hasGithub || !!sub.cashfree_order_id || !!sub.stripe_customer_id || (sub.monthly_scans_used > 0);
+
+      return {
+        id: u.id,
+        email: u.email,
+        createdAt: u.created_at,
+        lastSignIn: u.last_sign_in_at,
+        emailConfirmed: emailConfirmed,
+        provider: provider,
+        planTier: sub.plan_tier || "free",
+        billingStatus: sub.status || "active",
+        scansUsed: sub.monthly_scans_used || 0,
+        scansLimit: sub.monthly_scans_limit || 5,
+        paymentProvider: sub.payment_provider || (sub.stripe_customer_id ? "stripe" : "none"),
+        periodEnd: sub.current_period_end || null,
+      };
+    });
+
+    // Compute MRR and subscriber summaries
+    let mrrEstimate = 0;
+    let activePaidSubscribers = 0;
+    let freeSubscribers = 0;
+    let basicSubscribers = 0;
+    let startupSubscribers = 0;
+    let enterpriseSubscribers = 0;
+
+    users.forEach((u) => {
+      const isPaid = u.billingStatus === "active" || u.billingStatus === "past_due";
+      if (u.planTier === "basic") {
+        if (isPaid) {
+          activePaidSubscribers++;
+          basicSubscribers++;
+          let period = "monthly";
+          if (u.periodEnd && u.createdAt) {
+            const durationMs = new Date(u.periodEnd).getTime() - new Date(u.createdAt).getTime();
+            const durationDays = durationMs / (1000 * 60 * 60 * 24);
+            if (durationDays > 60) period = "yearly";
+          }
+          mrrEstimate += period === "yearly" ? 159 : 199;
+        } else {
+          freeSubscribers++;
+        }
+      } else if (u.planTier === "startup") {
+        if (isPaid) {
+          activePaidSubscribers++;
+          startupSubscribers++;
+          let period = "monthly";
+          if (u.periodEnd && u.createdAt) {
+            const durationMs = new Date(u.periodEnd).getTime() - new Date(u.createdAt).getTime();
+            const durationDays = durationMs / (1000 * 60 * 60 * 24);
+            if (durationDays > 60) period = "yearly";
+          }
+          mrrEstimate += period === "yearly" ? 799 : 999;
+        } else {
+          freeSubscribers++;
+        }
+      } else if (u.planTier === "enterprise") {
+        enterpriseSubscribers++;
+      } else {
+        freeSubscribers++;
+      }
+    });
+
+    const billingSummary = {
+      mrrEstimate,
+      activePaidSubscribers,
+      freeSubscribers,
+      basicSubscribers,
+      startupSubscribers,
+      enterpriseSubscribers,
+    };
 
     // Admin settings
-    const { data: settings } = await supabase
+    const { data: settings } = await req.supabase
       .from("admin_settings")
       .select("*")
       .eq("id", "global")
@@ -1574,6 +2476,7 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
       issues: reviews,
       recentActivity: activities.slice(0, 50),
       settings: settings || {},
+      billingSummary,
     });
   } catch (err) {
     console.error("❌ Admin Dashboard Error:", err);
@@ -1601,7 +2504,7 @@ app.put("/api/admin/settings", authMiddleware, adminMiddleware, async (req, res)
     if (typeof notice_message === "string") updates.notice_message = notice_message;
     if (typeof notice_type === "string") updates.notice_type = notice_type;
 
-    const { data, error } = await supabase
+    const { data, error } = await req.supabase
       .from("admin_settings")
       .update(updates)
       .eq("id", "global")

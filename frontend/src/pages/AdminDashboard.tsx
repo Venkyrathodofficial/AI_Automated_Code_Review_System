@@ -289,7 +289,14 @@ function DashboardView({
   const {
     totalUsers, totalReviews, totalRepos, signupsToday, signups7d, signups30d,
     loginsToday, logins7d, logins30d, criticalIssues, mediumIssues, lowIssues,
-    openIssues, resolvedIssues, reviewsByDay,
+    openIssues, resolvedIssues, reviewsByDay, billingSummary = {
+      mrrEstimate: 0,
+      activePaidSubscribers: 0,
+      freeSubscribers: 0,
+      basicSubscribers: 0,
+      startupSubscribers: 0,
+      enterpriseSubscribers: 0,
+    }
   } = data;
 
   const donutData = [
@@ -300,6 +307,49 @@ function DashboardView({
 
   return (
     <div className="space-y-8">
+      {/* ── SaaS Revenue & Analytics ── */}
+      <section>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-emerald-500" />
+            SaaS Revenue & Analytics
+          </h2>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <StatCard 
+            title="Estimated MRR" 
+            value={`₹${billingSummary.mrrEstimate.toLocaleString()}`} 
+            icon={Globe} 
+            color="emerald" 
+            delay={0} 
+          />
+          <StatCard 
+            title="Paid Subscribers" 
+            value={billingSummary.activePaidSubscribers} 
+            icon={Users} 
+            color="blue" 
+            delay={1} 
+            onClick={() => onNavigate("users")}
+          />
+          <StatCard 
+            title="Active Basic Tiers" 
+            value={billingSummary.basicSubscribers} 
+            icon={Shield} 
+            color="violet" 
+            delay={2} 
+            onClick={() => onNavigate("users")}
+          />
+          <StatCard 
+            title="Active Startup Tiers" 
+            value={billingSummary.startupSubscribers} 
+            icon={TrendingUp} 
+            color="amber" 
+            delay={3} 
+            onClick={() => onNavigate("users")}
+          />
+        </div>
+      </section>
+
       <section>
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
@@ -437,9 +487,10 @@ function UsersView({ users }: { users: AdminUser[] }) {
           <thead>
             <tr className="bg-gray-50 dark:bg-gray-800/50">
               <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">User</th>
+              <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Plan</th>
+              <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Scans Used</th>
               <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Provider</th>
               <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Signed Up</th>
-              <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Last Sign In</th>
               <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Status</th>
               <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
             </tr>
@@ -459,13 +510,38 @@ function UsersView({ users }: { users: AdminUser[] }) {
                   </div>
                 </td>
                 <td className="px-6 py-4">
+                  <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold capitalize ${
+                    u.planTier === "free" ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400" :
+                    u.planTier === "basic" ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400" :
+                    u.planTier === "startup" ? "bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-400" :
+                    "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400"
+                  }`}>
+                    {u.planTier}
+                    {u.planTier !== "free" && u.billingStatus !== "active" && (
+                      <span className="text-[10px] text-red-500 ml-1">({u.billingStatus})</span>
+                    )}
+                  </span>
+                </td>
+                <td className="px-6 py-4">
+                  <div className="flex flex-col gap-1 max-w-[100px]">
+                    <span className="text-xs font-medium text-gray-900 dark:text-white">
+                      {u.scansUsed || 0} / {u.scansLimit === 999999 ? "∞" : (u.scansLimit || 5)}
+                    </span>
+                    <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5 overflow-hidden">
+                      <div 
+                        className={`h-full rounded-full ${
+                          (u.scansUsed || 0) >= (u.scansLimit || 5) ? "bg-red-500" : "bg-primary"
+                        }`}
+                        style={{ width: `${Math.min(((u.scansUsed || 0) / (u.scansLimit || 5)) * 100, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                </td>
+                <td className="px-6 py-4">
                   <span className="px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-100 dark:bg-gray-800 capitalize">{u.provider}</span>
                 </td>
                 <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">
                   {u.createdAt ? formatDistanceToNow(new Date(u.createdAt), { addSuffix: true }) : "—"}
-                </td>
-                <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">
-                  {u.lastSignIn ? formatDistanceToNow(new Date(u.lastSignIn), { addSuffix: true }) : "Never"}
                 </td>
                 <td className="px-6 py-4">
                   {u.emailConfirmed ? (
@@ -486,7 +562,7 @@ function UsersView({ users }: { users: AdminUser[] }) {
               </tr>
             ))}
             {filteredUsers.length === 0 && (
-              <tr><td colSpan={6} className="px-6 py-12 text-center text-gray-500">No users found</td></tr>
+              <tr><td colSpan={7} className="px-6 py-12 text-center text-gray-500">No users found</td></tr>
             )}
           </tbody>
         </table>
@@ -504,6 +580,7 @@ function UsersView({ users }: { users: AdminUser[] }) {
                 <p className="text-sm text-gray-500">ID: {selectedUser.id}</p>
               </div>
             </div>
+            
             <div className="grid grid-cols-2 gap-4">
               <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
                 <p className="text-xs text-gray-500 mb-1">Provider</p>
@@ -515,11 +592,61 @@ function UsersView({ users }: { users: AdminUser[] }) {
               </div>
               <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
                 <p className="text-xs text-gray-500 mb-1">Signed Up</p>
-                <p className="font-medium">{selectedUser.createdAt ? format(new Date(selectedUser.createdAt), 'PPpp') : "Unknown"}</p>
+                <p className="font-medium text-sm">{selectedUser.createdAt ? format(new Date(selectedUser.createdAt), 'PPpp') : "Unknown"}</p>
               </div>
               <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
                 <p className="text-xs text-gray-500 mb-1">Last Sign In</p>
-                <p className="font-medium">{selectedUser.lastSignIn ? format(new Date(selectedUser.lastSignIn), 'PPpp') : "Never"}</p>
+                <p className="font-medium text-sm">{selectedUser.lastSignIn ? format(new Date(selectedUser.lastSignIn), 'PPpp') : "Never"}</p>
+              </div>
+            </div>
+
+            <div className="border-t border-gray-100 dark:border-gray-800 pt-6">
+              <h5 className="text-sm font-bold text-gray-900 dark:text-white mb-4">Subscription & Quota Details</h5>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                  <p className="text-xs text-gray-500 mb-1">Plan Tier</p>
+                  <p className="font-medium capitalize flex items-center gap-1.5 text-sm">
+                    <span className={`w-2.5 h-2.5 rounded-full ${
+                      selectedUser.planTier === "free" ? "bg-gray-400" :
+                      selectedUser.planTier === "basic" ? "bg-blue-500" :
+                      selectedUser.planTier === "startup" ? "bg-violet-500" :
+                      "bg-emerald-500"
+                    }`} />
+                    {selectedUser.planTier}
+                  </p>
+                </div>
+                <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                  <p className="text-xs text-gray-500 mb-1">Payment Provider</p>
+                  <p className="font-medium text-xs font-mono truncate capitalize" title={selectedUser.paymentProvider || "None"}>
+                    {selectedUser.paymentProvider || "—"}
+                  </p>
+                </div>
+                <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl col-span-2">
+                  <div className="flex justify-between items-center mb-1">
+                    <p className="text-xs text-gray-500">Monthly Scans Used</p>
+                    <p className="text-xs font-bold text-gray-900 dark:text-white">
+                      {selectedUser.scansUsed || 0} / {selectedUser.scansLimit === 999999 ? "∞" : (selectedUser.scansLimit || 5)}
+                    </p>
+                  </div>
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+                    <div 
+                      className={`h-full rounded-full ${
+                        (selectedUser.scansUsed || 0) >= (selectedUser.scansLimit || 5) ? "bg-red-500" : "bg-primary"
+                      }`}
+                      style={{ width: `${Math.min(((selectedUser.scansUsed || 0) / (selectedUser.scansLimit || 5)) * 100, 100)}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                  <p className="text-xs text-gray-500 mb-1">Billing Status</p>
+                  <p className="font-medium capitalize text-sm">{selectedUser.billingStatus || "—"}</p>
+                </div>
+                <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                  <p className="text-xs text-gray-500 mb-1">Period End / Renewal</p>
+                  <p className="font-medium text-sm">
+                    {selectedUser.periodEnd ? format(new Date(selectedUser.periodEnd), 'PP') : "—"}
+                  </p>
+                </div>
               </div>
             </div>
           </div>

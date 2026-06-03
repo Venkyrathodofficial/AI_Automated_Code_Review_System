@@ -17,6 +17,7 @@ import { useReviews, useToggleStatus } from "@/hooks/useReviews";
 
 const severityVariant: Record<string, string> = {
   critical: "bg-red-100 text-red-700 border-0 dark:bg-red-900/30 dark:text-red-400",
+  high: "bg-orange-100 text-orange-700 border-0 dark:bg-orange-900/30 dark:text-orange-400",
   medium: "bg-amber-100 text-amber-700 border-0 dark:bg-amber-900/30 dark:text-amber-400",
   low: "bg-emerald-100 text-emerald-700 border-0 dark:bg-emerald-900/30 dark:text-emerald-400",
 };

@@ -64,7 +64,7 @@ export interface ReportEmailResult {
   };
 }
 
-const BASE = import.meta.env.VITE_API_URL || "/api";
+const BASE = import.meta.env.VITE_API_URL || "/api/v1";
 
 /** Get current user's access token */
 async function getAuthHeaders(): Promise<Record<string, string>> {
@@ -170,5 +170,78 @@ export async function sendDetailedReportEmail(payload?: {
     const err = await res.json().catch(() => ({ error: "Failed to send report" }));
     throw new Error(err.error || "Failed to send report");
   }
+  return res.json();
+}
+
+export interface ScanHistory {
+  id: string;
+  repository_name: string;
+  scan_date: string;
+  security_score: number;
+  security_grade: string;
+  critical_issues: number;
+  high_issues: number;
+  medium_issues: number;
+  low_issues: number;
+  files_scanned: number;
+  commit_id: string;
+  commit_message: string;
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  repository_name: string;
+  owner: string;
+  security_score: number;
+  security_grade: string;
+  critical_issues: number;
+  high_issues: number;
+  medium_issues: number;
+  low_issues: number;
+  last_scan_date: string;
+  score_improvement: number;
+  most_improved: boolean;
+}
+
+export interface PublicReportResult {
+  scan: ScanHistory;
+  reviews: ReviewRow[];
+}
+
+export async function fetchScanHistory(repoFullName?: string): Promise<ScanHistory[]> {
+  const headers = await getAuthHeaders();
+  const url = repoFullName 
+    ? `${BASE}/scan-history?repo=${encodeURIComponent(repoFullName)}`
+    : `${BASE}/scan-history`;
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error("Failed to fetch scan history");
+  return res.json();
+}
+
+export async function submitFeedback(payload: {
+  category: string;
+  feedback: string;
+  rating?: number;
+  email?: string;
+}): Promise<{ success: boolean }> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${BASE}/feedback`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("Failed to submit feedback");
+  return res.json();
+}
+
+export async function fetchLeaderboard(): Promise<LeaderboardEntry[]> {
+  const res = await fetch(`${BASE}/leaderboard`);
+  if (!res.ok) throw new Error("Failed to fetch leaderboard");
+  return res.json();
+}
+
+export async function fetchPublicReport(scanId: string): Promise<PublicReportResult> {
+  const res = await fetch(`${BASE}/public/reports/${scanId}`);
+  if (!res.ok) throw new Error("Failed to fetch public report");
   return res.json();
 }

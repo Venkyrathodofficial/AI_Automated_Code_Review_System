@@ -4,15 +4,16 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis
 import { useStats, useReviews } from "@/hooks/useReviews";
 import { Loader2 } from "lucide-react";
 
-const PIE_COLORS = ["#dc2626", "#f59e0b", "#16a34a"];
+const PIE_COLORS = ["#dc2626", "#f97316", "#f59e0b", "#16a34a"];
 
 export function RiskChart() {
   const { data: stats, isLoading } = useStats();
 
   const pieData = [
     { name: "Critical", value: stats?.critical ?? 0, color: PIE_COLORS[0] },
-    { name: "Medium", value: stats?.medium ?? 0, color: PIE_COLORS[1] },
-    { name: "Low", value: stats?.low ?? 0, color: PIE_COLORS[2] },
+    { name: "High", value: stats?.high ?? 0, color: PIE_COLORS[1] },
+    { name: "Medium", value: stats?.medium ?? 0, color: PIE_COLORS[2] },
+    { name: "Low", value: stats?.low ?? 0, color: PIE_COLORS[3] },
   ];
 
   const total = pieData.reduce((sum, d) => sum + d.value, 0);
@@ -127,15 +128,16 @@ export function TrendChart() {
 
   const trendData = useMemo(() => {
     if (!issues || issues.length === 0) return [];
-    const buckets = new Map<string, { label: string; sortKey: number; critical: number; medium: number; low: number }>();
+    const buckets = new Map<string, { label: string; sortKey: number; critical: number; high: number; medium: number; low: number }>();
     for (const issue of issues) {
       if (!issue.date) continue;
       const label = getDateKey(issue.date, range);
       const sortKey = getSortKey(issue.date, range);
-      if (!buckets.has(label)) buckets.set(label, { label, sortKey, critical: 0, medium: 0, low: 0 });
+      if (!buckets.has(label)) buckets.set(label, { label, sortKey, critical: 0, high: 0, medium: 0, low: 0 });
       const bucket = buckets.get(label)!;
       const sev = issue.severity?.toLowerCase();
       if (sev === "critical") bucket.critical++;
+      else if (sev === "high") bucket.high++;
       else if (sev === "medium") bucket.medium++;
       else bucket.low++;
     }
@@ -210,6 +212,7 @@ export function TrendChart() {
                 }}
               />
               <Bar dataKey="critical" name="Critical" fill="#dc2626" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="high" name="High" fill="#f97316" radius={[4, 4, 0, 0]} />
               <Bar dataKey="medium" name="Medium" fill="#f59e0b" radius={[4, 4, 0, 0]} />
               <Bar dataKey="low" name="Low" fill="#16a34a" radius={[4, 4, 0, 0]} />
             </BarChart>

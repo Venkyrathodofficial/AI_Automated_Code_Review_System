@@ -1,4 +1,4 @@
-import { ShieldCheck, LayoutDashboard, GitFork, AlertTriangle, Settings, LogOut, HelpCircle } from "lucide-react";
+import { ShieldCheck, LayoutDashboard, GitFork, AlertTriangle, Settings, LogOut, HelpCircle, CreditCard } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
@@ -22,6 +22,7 @@ const mainMenu = [
 ];
 
 const generalMenu = [
+  { title: "Billing", url: "/billing", icon: CreditCard },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 

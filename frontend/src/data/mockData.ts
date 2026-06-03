@@ -3,7 +3,7 @@ export interface Issue {
   repository: string;
   fileName: string;
   title: string;
-  severity: "critical" | "medium" | "low";
+  severity: "critical" | "high" | "medium" | "low";
   status: "open" | "resolved";
   date: string;
   description: string;
@@ -11,6 +11,10 @@ export interface Issue {
   optimizationTip: string;
   commitMessage: string;
   commitId: string;
+  lineNumber?: number | null;
+  category?: string;
+  secureCode?: string;
+  bestPractices?: string;
 }
 
 export const mockIssues: Issue[] = [
@@ -47,7 +51,7 @@ export const mockIssues: Issue[] = [
     repository: "frontend-app",
     fileName: "src/components/Dashboard.tsx",
     title: "Unused state variable causing re-renders",
-    severity: "medium",
+    severity: "high",
     status: "resolved",
     date: "2026-02-28",
     description: "A state variable is declared and updated but never used in the render output, causing unnecessary re-renders.",

@@ -37,6 +37,32 @@ GRANT SELECT ON code_reviews TO anon;
 GRANT SELECT ON user_repositories TO service_role;
 GRANT SELECT ON user_repositories TO anon;
 
+-- Allow authenticated admin users to read all profiles
+DROP POLICY IF EXISTS "Admins can view all profiles" ON public.profiles;
+CREATE POLICY "Admins can view all profiles"
+  ON public.profiles FOR SELECT
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.admin_users WHERE admin_users.user_id = auth.uid()
+    )
+  );
+
+-- Allow authenticated admin users to read all subscriptions
+DROP POLICY IF EXISTS "Admins can view all subscriptions" ON public.subscriptions;
+CREATE POLICY "Admins can view all subscriptions"
+  ON public.subscriptions FOR SELECT
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.admin_users WHERE admin_users.user_id = auth.uid()
+    )
+  );
+
+-- Ensure correct grant permissions
+GRANT SELECT ON public.profiles TO authenticated;
+GRANT SELECT ON public.subscriptions TO authenticated;
+
 -- ============================================
 -- After running this, verify with:
 -- SELECT * FROM code_reviews LIMIT 5;

@@ -11,9 +11,12 @@ import Index from "./pages/Index";
 import Repositories from "./pages/Repositories";
 import Issues from "./pages/Issues";
 import Settings from "./pages/Settings";
+import Billing from "./pages/Billing";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminLogin from "./pages/AdminLogin";
 import NotFound from "./pages/NotFound";
+import Leaderboard from "./pages/Leaderboard";
+import ReportShare from "./pages/ReportShare";
 
 const queryClient = new QueryClient();
 
@@ -28,10 +31,13 @@ const App = () => (
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Login />} />
             <Route path="/admin/login" element={<AdminLogin />} />
+            <Route path="/leaderboard" element={<Leaderboard />} />
+            <Route path="/report/:scanId" element={<ReportShare />} />
             <Route path="/dashboard" element={<ProtectedRoute><Index /></ProtectedRoute>} />
             <Route path="/repositories" element={<ProtectedRoute><Repositories /></ProtectedRoute>} />
             <Route path="/issues" element={<ProtectedRoute><Issues /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+            <Route path="/billing" element={<ProtectedRoute><Billing /></ProtectedRoute>} />
             <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>

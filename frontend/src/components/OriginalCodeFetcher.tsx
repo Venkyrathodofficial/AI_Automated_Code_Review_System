@@ -15,7 +15,7 @@ export function OriginalCodeFetcher({ fileName, onCodeFetched }: Props) {
     setError("");
     try {
       // Replace with your real API endpoint to fetch file content
-      const res = await fetch(`/api/file-content?file=${encodeURIComponent(fileName)}`);
+      const res = await fetch(`/api/v1/file-content?file=${encodeURIComponent(fileName)}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to fetch code");
       onCodeFetched(data.code);

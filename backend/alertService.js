@@ -28,7 +28,7 @@ function sanitizeText(value) {
   return String(value).replace(/\s+/g, " ").trim() || "-";
 }
 
-function buildIssueReportPdfBuffer({ userEmail, issues, summary }) {
+function buildIssueReportPdfBuffer({ userEmail, issues, summary, extra = {} }) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 42, size: "A4" });
     const chunks = [];
@@ -37,43 +37,200 @@ function buildIssueReportPdfBuffer({ userEmail, issues, summary }) {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    const generatedAt = new Date().toISOString();
-    doc.fontSize(20).text("Code Review Detailed Report", { align: "left" });
-    doc.moveDown(0.35);
-    doc.fontSize(10).fillColor("#4B5563");
-    doc.text(`User: ${sanitizeText(userEmail)}`);
-    doc.text(`Generated At (UTC): ${generatedAt}`);
-    doc.moveDown(0.5);
-    doc.fillColor("#111827").fontSize(11);
-    doc.text(`Total Issues: ${summary.total}`);
-    doc.text(`Critical: ${summary.critical}  |  Medium: ${summary.medium}  |  Low: ${summary.low}`);
-    doc.moveDown(0.8);
+    const generatedAt = new Date().toLocaleString();
+    const repositoryName = extra.repositoryName || "All Connected Repositories";
+    
+    // Calculate Security Score & Grade if not provided
+    let score = extra.securityScore;
+    let grade = extra.securityGrade;
+    if (score === undefined || score === null) {
+      let criticalCount = summary.critical || 0;
+      let highCount = summary.high || 0;
+      let mediumCount = summary.medium || 0;
+      let lowCount = summary.low || 0;
+      const deductions = criticalCount * 15 + highCount * 10 + mediumCount * 5 + lowCount * 2;
+      score = Math.max(0, 100 - deductions);
+      
+      grade = "D";
+      if (score >= 95) grade = "A+";
+      else if (score >= 90) grade = "A";
+      else if (score >= 80) grade = "B";
+      else if (score >= 70) grade = "C";
+    }
 
-    issues.forEach((issue, index) => {
-      if (doc.y > 700) doc.addPage();
+    // 1. Draw Slate-900 Premium Header Banner
+    doc.save();
+    doc.rect(42, 42, 511, 60).fill("#0F172A");
+    doc.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(18).text("SENTINEL AI SECURITY AUDIT", 58, 54);
+    doc.fillColor("#94A3B8").font("Helvetica").fontSize(9).text("AUTOMATED CYBERSECURITY SCANNER & REMEDIATION REPORT", 58, 76);
+    doc.restore();
+    
+    doc.y = 115;
 
-      doc
-        .fontSize(12)
-        .fillColor("#111827")
-        .text(`${index + 1}. ${sanitizeText(issue.issue_title)}`, { underline: false });
+    // 2. Draw Score & Grade Info Box
+    doc.save();
+    doc.rect(42, doc.y, 511, 75).fill("#F8FAFC");
+    doc.rect(42, doc.y, 511, 75).strokeColor("#E2E8F0").lineWidth(1).stroke();
+    
+    // Grade Display
+    let gradeColor = "#10B981"; // green
+    if (grade === "B" || grade === "C") gradeColor = "#F59E0B"; // amber
+    if (grade === "D") gradeColor = "#EF4444"; // red
+    
+    doc.fillColor("#64748B").font("Helvetica-Bold").fontSize(8).text("SECURITY GRADE", 58, doc.y + 12);
+    doc.fillColor(gradeColor).font("Helvetica-Bold").fontSize(28).text(grade, 58, doc.y + 24);
+    
+    // Score Bar
+    doc.fillColor("#64748B").font("Helvetica-Bold").fontSize(8).text("HEALTH SCORE", 180, doc.y + 12);
+    doc.fillColor("#1E293B").font("Helvetica-Bold").fontSize(20).text(`${score}/100`, 180, doc.y + 24);
+    
+    // Metadata
+    doc.fillColor("#64748B").font("Helvetica-Bold").fontSize(8).text("REPORT METADATA", 330, doc.y + 12);
+    doc.font("Helvetica").fontSize(8).fillColor("#334155");
+    doc.text(`Target Repo: ${sanitizeText(repositoryName)}`, 330, doc.y + 24);
+    doc.text(`Scanned User: ${sanitizeText(userEmail)}`, 330, doc.y + 36);
+    doc.text(`Report Date: ${generatedAt}`, 330, doc.y + 48);
+    
+    doc.restore();
+    doc.y = doc.y + 90;
 
-      doc.fontSize(9).fillColor("#374151");
-      doc.text(`Repository: ${sanitizeText(issue.repository_name)}`);
-      doc.text(`File: ${sanitizeText(issue.file_name)}`);
-      doc.text(`Severity: ${sanitizeText(issue.severity)}  |  Status: ${sanitizeText(issue.status)}`);
-      doc.text(`Commit: ${sanitizeText(issue.commit_id)}  |  Date: ${sanitizeText(issue.created_at)}`);
-      doc.moveDown(0.2);
-      doc.fontSize(9).fillColor("#111827").text(`Description: ${sanitizeText(issue.issue_description)}`);
-      doc.moveDown(0.15);
-      doc.fontSize(9).fillColor("#065F46").text(`Suggested Fix: ${sanitizeText(issue.suggestion)}`);
-      if (issue.optimization_tip) {
-        doc.moveDown(0.15);
-        doc.fontSize(9).fillColor("#1F2937").text(`Optimization Tip: ${sanitizeText(issue.optimization_tip)}`);
-      }
-      doc.moveDown(0.65);
-      doc.strokeColor("#D1D5DB").lineWidth(0.6).moveTo(42, doc.y).lineTo(553, doc.y).stroke();
-      doc.moveDown(0.55);
+    // 3. Draw Summary Statistics
+    doc.save();
+    doc.fillColor("#1E293B").font("Helvetica-Bold").fontSize(11).text("VULNERABILITY SUMMARY", 42, doc.y);
+    doc.y = doc.y + 15;
+    
+    const colWidth = 120;
+    const startX = 42;
+    const boxY = doc.y;
+    
+    const metrics = [
+      { name: "CRITICAL", count: summary.critical || 0, color: "#EF4444" },
+      { name: "HIGH", count: summary.high || 0, color: "#F97316" },
+      { name: "MEDIUM", count: summary.medium || 0, color: "#F59E0B" },
+      { name: "LOW", count: summary.low || 0, color: "#10B981" }
+    ];
+    
+    metrics.forEach((m, idx) => {
+      const boxX = startX + idx * colWidth;
+      doc.rect(boxX, boxY, colWidth - 10, 35).fill("#F8FAFC");
+      doc.rect(boxX, boxY, colWidth - 10, 35).strokeColor("#E2E8F0").lineWidth(0.5).stroke();
+      
+      doc.fillColor(m.color).font("Helvetica-Bold").fontSize(12).text(String(m.count), boxX + 10, boxY + 6);
+      doc.fillColor("#64748B").font("Helvetica-Bold").fontSize(7).text(m.name, boxX + 10, boxY + 22);
     });
+    doc.restore();
+    doc.y = boxY + 55;
+
+    // Divider
+    doc.strokeColor("#E2E8F0").lineWidth(1).moveTo(42, doc.y).lineTo(553, doc.y).stroke();
+    doc.y = doc.y + 15;
+
+    // Helper function to draw code blocks in PDF
+    const drawCodeBlock = (title, codeText, bgColor, titleColor) => {
+      if (!codeText || codeText.trim() === "" || codeText === "-") return;
+      
+      const width = 511;
+      const verticalPadding = 12;
+      const horizontalPadding = 10;
+      
+      doc.save();
+      doc.font("Courier");
+      doc.fontSize(7);
+      
+      const textHeight = doc.heightOfString(codeText, { width: width - horizontalPadding * 2 });
+      const blockHeight = textHeight + verticalPadding * 2 + 10;
+      
+      // Page break check
+      if (doc.y + blockHeight > 750) {
+        doc.addPage();
+      }
+      
+      const blockY = doc.y;
+      doc.rect(42, blockY, width, blockHeight).fill(bgColor);
+      doc.rect(42, blockY, width, blockHeight).strokeColor("#E2E8F0").lineWidth(0.5).stroke();
+      
+      // Title header
+      doc.font("Helvetica-Bold").fontSize(7.5).fillColor(titleColor).text(title, 42 + horizontalPadding, blockY + verticalPadding);
+      // Code body
+      doc.font("Courier").fontSize(7).fillColor("#1E293B").text(codeText, 42 + horizontalPadding, blockY + verticalPadding + 12, { width: width - horizontalPadding * 2 });
+      
+      doc.restore();
+      doc.y = blockY + blockHeight + 10;
+    };
+
+    // 4. Draw Detailed Issues List
+    doc.fillColor("#1E293B").font("Helvetica-Bold").fontSize(12).text("DETAILED SECURITY ISSUES", 42, doc.y);
+    doc.y = doc.y + 15;
+
+    if (issues.length === 0) {
+      doc.font("Helvetica-Oblique").fontSize(9).fillColor("#64748B").text("No security vulnerabilities were identified in this scan.", 42, doc.y);
+    } else {
+      issues.forEach((issue, index) => {
+        // Estimate issue header height
+        const headerHeight = 110;
+        if (doc.y + headerHeight > 730) {
+          doc.addPage();
+        }
+
+        const issueY = doc.y;
+        
+        // Severity Tag Color
+        let sevColor = "#10B981"; // green
+        const sev = String(issue.severity || "").toLowerCase();
+        if (sev === "critical") sevColor = "#EF4444";
+        else if (sev === "high") sevColor = "#F97316";
+        else if (sev === "medium") sevColor = "#F59E0B";
+
+        // Issue Number & Title
+        doc.save();
+        doc.fillColor("#1E293B").font("Helvetica-Bold").fontSize(10).text(`${index + 1}. ${sanitizeText(issue.issue_title)}`, 42, issueY);
+        
+        // Severity Badge
+        doc.rect(480, issueY - 1, 73, 13).fill(sevColor);
+        doc.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(7).text(String(issue.severity).toUpperCase(), 480, issueY + 2, { width: 73, align: "center" });
+        doc.restore();
+        
+        doc.y = issueY + 16;
+        
+        // File details
+        doc.save();
+        doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#475569");
+        doc.text("File: ", 42, doc.y, { continued: true }).font("Helvetica").text(`${sanitizeText(issue.file_name)}${issue.line_number ? ` : Line ${issue.line_number}` : ""}`);
+        doc.font("Helvetica-Bold").text("Category: ", 42, doc.y + 12, { continued: true }).font("Helvetica").text(sanitizeText(issue.category).replace(/_/g, " ").toUpperCase());
+        doc.font("Helvetica-Bold").text("Impact Description: ", 42, doc.y + 24, { continued: true }).font("Helvetica").text(sanitizeText(issue.issue_description));
+        doc.font("Helvetica-Bold").text("Remediation Recommendation: ", 42, doc.y + 36, { continued: true }).font("Helvetica").text(sanitizeText(issue.suggestion));
+        doc.restore();
+        
+        doc.y = doc.y + 55;
+
+        // Draw Snippets
+        if (issue.snippet && issue.snippet !== "-") {
+          drawCodeBlock("VULNERABLE CODE SNIPPET", issue.snippet, "#FEF2F2", "#EF4444");
+        } else if (issue.offending_line && issue.offending_line !== "-") {
+          drawCodeBlock("VULNERABLE LINE", issue.offending_line, "#FEF2F2", "#EF4444");
+        }
+
+        if (issue.secure_code && issue.secure_code !== "-" && issue.secure_code.trim() !== "") {
+          drawCodeBlock("SECURE CODE REMEDIATION", issue.secure_code, "#F0FDF4", "#16A34A");
+        }
+
+        if (issue.best_practices && issue.best_practices !== "-" && issue.best_practices.trim() !== "") {
+          doc.save();
+          if (doc.y + 40 > 750) doc.addPage();
+          doc.font("Helvetica-Bold").fontSize(8).fillColor("#16A34A").text("Remediation Best Practices:", 42, doc.y);
+          doc.font("Helvetica").fontSize(8).fillColor("#334155").text(sanitizeText(issue.best_practices), 42, doc.y + 10, { width: 511 });
+          doc.restore();
+          doc.y = doc.y + 35;
+        }
+
+        doc.y = doc.y + 10;
+        if (index < issues.length - 1) {
+          if (doc.y + 30 > 750) doc.addPage();
+          doc.strokeColor("#E2E8F0").lineWidth(0.5).moveTo(42, doc.y).lineTo(553, doc.y).stroke();
+          doc.y = doc.y + 15;
+        }
+      });
+    }
 
     doc.end();
   });
@@ -219,4 +376,5 @@ module.exports = {
   sendToNotion,
   sendDetailedIssueReportEmail,
   sendMobileReportReadyNotification,
+  buildIssueReportPdfBuffer,
 };

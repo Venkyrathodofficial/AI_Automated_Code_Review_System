@@ -17,6 +17,7 @@ import type { Issue } from "@/data/mockData";
 export function rowToIssue(r: ReviewRow): Issue {
   const severityMap: Record<string, Issue["severity"]> = {
     critical: "critical",
+    high: "high",
     medium: "medium",
     low: "low",
   };
@@ -38,6 +39,10 @@ export function rowToIssue(r: ReviewRow): Issue {
     optimizationTip: r.optimization_tip,
     commitMessage: r.commit_message,
     commitId: r.commit_id,
+    lineNumber: r.line_number,
+    category: r.category,
+    secureCode: r.secure_code,
+    bestPractices: r.best_practices,
   };
 }
 

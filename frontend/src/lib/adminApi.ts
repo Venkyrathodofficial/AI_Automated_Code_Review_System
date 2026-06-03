@@ -4,7 +4,7 @@
 
 import { supabase } from "@/lib/supabase";
 
-const BASE = import.meta.env.VITE_API_URL || "/api";
+const BASE = import.meta.env.VITE_API_URL || "/api/v1";
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const {
@@ -52,6 +52,12 @@ export interface AdminUser {
   lastSignIn: string | null;
   emailConfirmed: boolean;
   provider: string;
+  planTier?: string;
+  billingStatus?: string;
+  scansUsed?: number;
+  scansLimit?: number;
+  paymentProvider?: string | null;
+  periodEnd?: string | null;
 }
 
 export interface ActivityEntry {
@@ -109,6 +115,14 @@ export interface AdminDashboardData {
   issues: AdminIssue[];
   recentActivity: ActivityEntry[];
   settings: AdminSettings;
+  billingSummary?: {
+    mrrEstimate: number;
+    activePaidSubscribers: number;
+    freeSubscribers: number;
+    basicSubscribers: number;
+    startupSubscribers: number;
+    enterpriseSubscribers: number;
+  };
 }
 
 export async function fetchAdminDashboard(): Promise<AdminDashboardData> {

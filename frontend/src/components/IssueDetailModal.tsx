@@ -44,11 +44,20 @@ export function IssueDetailModal({ issue, onClose }: Props) {
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 mt-2">
+        <div className="space-y-4 mt-2 max-h-[80vh] overflow-y-auto pr-1">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Description</p>
             <p className="text-sm text-card-foreground leading-relaxed">{issue.description}</p>
           </div>
+
+          {issue.category && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Category</p>
+              <Badge variant="outline" className="text-xs font-mono capitalize">
+                {issue.category.replace(/_/g, " ")}
+              </Badge>
+            </div>
+          )}
 
           <div className="flex items-start gap-3 rounded-xl bg-primary/5 border border-primary/10 p-4">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 flex-shrink-0">
@@ -60,15 +69,53 @@ export function IssueDetailModal({ issue, onClose }: Props) {
             </div>
           </div>
 
-          <div className="flex items-start gap-3 rounded-xl bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/20 p-4">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 dark:bg-amber-900/20 flex-shrink-0">
-              <Lightbulb className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+          {/* Code comparison block */}
+          {issue.secureCode && (
+            <div className="space-y-3.5 pt-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Code Remediation</p>
+              
+              <div className="space-y-2">
+                <div className="space-y-1">
+                  <span className="text-[9px] font-bold text-rose-500 uppercase tracking-wide">Vulnerable Code</span>
+                  <pre className="p-3 bg-red-950/10 border border-red-900/20 rounded-lg font-mono text-xs text-red-200 overflow-x-auto whitespace-pre">
+                    {/* If there's no original code fetched, we show the offending line from scan if available */}
+                    {originalCode || `// Line ${issue.lineNumber || "unknown"}\n${issue.suggestedFix ? "Vulnerability detected." : ""}`}
+                  </pre>
+                </div>
+
+                <div className="space-y-1">
+                  <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-wide">Secure Code</span>
+                  <pre className="p-3 bg-emerald-950/10 border border-emerald-900/20 rounded-lg font-mono text-xs text-emerald-350 overflow-x-auto whitespace-pre">
+                    {issue.secureCode}
+                  </pre>
+                </div>
+              </div>
             </div>
-            <div>
-              <p className="text-xs font-bold text-card-foreground mb-1">Optimization Tip</p>
-              <p className="text-sm text-muted-foreground leading-relaxed">{issue.optimizationTip}</p>
+          )}
+
+          {issue.bestPractices && (
+            <div className="flex items-start gap-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/10 border border-emerald-100 dark:border-emerald-950/20 p-4">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-950/20 flex-shrink-0">
+                <Lightbulb className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-card-foreground mb-1">Best Practices</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">{issue.bestPractices}</p>
+              </div>
             </div>
-          </div>
+          )}
+
+          {issue.optimizationTip && (
+            <div className="flex items-start gap-3 rounded-xl bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/20 p-4">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 dark:bg-amber-900/20 flex-shrink-0">
+                <Lightbulb className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-card-foreground mb-1">Optimization Tip</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">{issue.optimizationTip}</p>
+              </div>
+            </div>
+          )}
 
           <div className="flex items-start gap-3 rounded-xl bg-secondary/50 p-4">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted flex-shrink-0">
@@ -81,9 +128,12 @@ export function IssueDetailModal({ issue, onClose }: Props) {
             </div>
           </div>
 
-          <div className="flex gap-4 text-xs text-muted-foreground pt-2 border-t border-border">
+          <div className="flex flex-col gap-1.5 text-xs text-muted-foreground pt-2 border-t border-border">
             <span><span className="font-bold text-card-foreground">Repo:</span> {issue.repository}</span>
-            <span><span className="font-bold text-card-foreground">File:</span> {issue.fileName}</span>
+            <span>
+              <span className="font-bold text-card-foreground">File:</span> {issue.fileName}
+              {issue.lineNumber && <span className="text-indigo-400 font-mono ml-1.5">Line {issue.lineNumber}</span>}
+            </span>
           </div>
 
           {/* Fix Code with AI button and modal, only if open */}

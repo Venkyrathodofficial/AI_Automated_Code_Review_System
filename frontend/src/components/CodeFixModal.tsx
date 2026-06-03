@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useGithubAuth } from "@/hooks/useGithubAuth";
+import { supabase } from "@/lib/supabase";
 import {
   Dialog,
   DialogContent,
@@ -25,19 +26,27 @@ export function CodeFixModal({ open, onClose, fileName, originalCode, issueDescr
   const [commitLoading, setCommitLoading] = useState(false);
   const [commitSuccess, setCommitSuccess] = useState("");
   const { token, setToken, repo, setRepo, branch, setBranch, connectGithub } = useGithubAuth();
+  
   const handleCommit = async () => {
     setCommitLoading(true);
     setCommitSuccess("");
     setError("");
     try {
-      if (!repo || !token) {
-        setError("Please enter your GitHub repo and token.");
+      if (!repo) {
+        setError("Please enter your GitHub repo.");
         setCommitLoading(false);
         return;
       }
-      const res = await fetch("/api/commit-fix", {
+      
+      const { data: { session } } = await supabase.auth.getSession();
+      const sbToken = session?.access_token;
+      
+      const res = await fetch("/api/v1/commit-fix", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          ...(sbToken ? { Authorization: `Bearer ${sbToken}` } : {}),
+        },
         body: JSON.stringify({ fileName, improvedCode, repo, branch, token }),
       });
       const data = await res.json();
@@ -56,9 +65,15 @@ export function CodeFixModal({ open, onClose, fileName, originalCode, issueDescr
     setImprovedCode("");
     setExplanation("");
     try {
-      const res = await fetch("/api/fix-code", {
+      const { data: { session } } = await supabase.auth.getSession();
+      const sbToken = session?.access_token;
+      
+      const res = await fetch("/api/v1/fix-code", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          ...(sbToken ? { Authorization: `Bearer ${sbToken}` } : {}),
+        },
         body: JSON.stringify({ code: originalCode, issueDescription }),
       });
       const data = await res.json();
@@ -71,6 +86,7 @@ export function CodeFixModal({ open, onClose, fileName, originalCode, issueDescr
       setLoading(false);
     }
   };
+
 
   const handleCopy = () => {
     navigator.clipboard.writeText(improvedCode);
