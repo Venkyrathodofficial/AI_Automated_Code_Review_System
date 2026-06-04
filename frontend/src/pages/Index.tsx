@@ -102,7 +102,7 @@ const Index = () => {
                   </div>
                 </div>
 
-                {securitySummary.potentialSecurityGain > 0 ? (
+                {potentialSecurityGain > 0 ? (
                   <div className="flex items-center gap-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 px-3 py-1.5 text-xs text-emerald-700 dark:text-emerald-400 font-semibold animate-pulse">
                     <ArrowUpRight className="h-3.5 w-3.5" />
                     <span>POTENTIAL SECURITY GAIN</span>

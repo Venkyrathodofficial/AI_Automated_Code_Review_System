@@ -27,8 +27,8 @@ const severityColor: Record<string, string> = {
 export function IssueDetailModal({ issue, onClose }: Props) {
   const [originalCode, setOriginalCode] = useState("");
   const [showFixModal, setShowFixModal] = useState(false);
-  const intel = deriveVulnerabilityIntel(issue);
   if (!issue) return null;
+  const intel = deriveVulnerabilityIntel(issue);
 
   return (
     <Dialog open={!!issue} onOpenChange={onClose}>
