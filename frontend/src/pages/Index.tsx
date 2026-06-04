@@ -5,17 +5,13 @@ import { StatsGrid } from "@/components/StatsGrid";
 import { RiskChart, TrendChart } from "@/components/RiskChart";
 import { OnboardingTour } from "@/components/OnboardingTour";
 import { motion } from "framer-motion";
-import { GitCommit, Loader2, Activity, Sparkles, ArrowUpRight, ChevronRight, Shield } from "lucide-react";
+import { GitCommit, Loader2, Activity, Sparkles, ArrowUpRight, ChevronRight, Shield, ShieldCheck } from "lucide-react";
 import { useReviews, useScanHistory } from "@/hooks/useReviews";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
 import { IssueDetailModal } from "@/components/IssueDetailModal";
 import { Issue } from "@/data/mockData";
-import {
-  buildRecommendedSecurityActions,
-  calculatePotentialSecurityGain,
-  summarizeSecurityState,
-} from "@/lib/security";
+import { buildRecommendedSecurityActions, calculatePotentialSecurityGain } from "@/lib/security";
 
 const Index = () => {
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
@@ -35,13 +31,7 @@ const Index = () => {
   const penalty = openCritical * 15 + openHigh * 8 + openMed * 4 + openLow * 1;
   const currentScore = Math.max(0, 100 - penalty);
   const potentialSecurityGain = calculatePotentialSecurityGain({ critical: openCritical, high: openHigh, medium: openMed, low: openLow });
-  const securitySummary = summarizeSecurityState({
-    currentScore,
-    previousScore: previousScan?.security_score,
-    criticalRisks: openCritical,
-    aiFixesAvailable: openIssues.filter((issue) => issue.suggestedFix && issue.suggestedFix.trim().length > 0).length,
-    potentialSecurityGain,
-  });
+  const openFixCount = openIssues.filter((issue) => issue.suggestedFix && issue.suggestedFix.trim().length > 0).length;
 
   // Take top priority risks for Action Center recommended fixes
   const topFixes = buildRecommendedSecurityActions(issues, 3);
@@ -63,44 +53,31 @@ const Index = () => {
             >
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-sm font-bold text-card-foreground">Security Summary</h3>
-                  <p className="text-xs text-muted-foreground mt-1">How secure your repositories are right now, and how much they can improve.</p>
+                  <h3 className="text-sm font-bold text-card-foreground">Security Intelligence Overview</h3>
+                  <p className="text-xs text-muted-foreground mt-1">A single view for score, risk, recommended fixes, and improvement potential.</p>
                 </div>
                 <div className="flex items-center gap-2 rounded-xl border border-primary/10 bg-primary/5 px-3 py-1.5 text-xs text-muted-foreground">
-                  <Shield className="h-3.5 w-3.5 text-primary" />
+                  <ShieldCheck className="h-3.5 w-3.5 text-primary" />
                   <span>Zero Human Code Access</span>
                 </div>
               </div>
 
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-xl border border-border bg-secondary/20 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Current Security Score</p>
-                  <p className="mt-1 text-xl font-extrabold text-card-foreground">{securitySummary.currentScore}/100</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">What you get</p>
+                  <p className="mt-1 text-sm font-medium text-card-foreground">One score, one grade, one risk level.</p>
                 </div>
                 <div className="rounded-xl border border-border bg-secondary/20 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Security Grade</p>
-                  <p className="mt-1 text-xl font-extrabold text-card-foreground">{securitySummary.grade}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Focus first</p>
+                  <p className="mt-1 text-sm font-medium text-card-foreground">Fix the highest-risk findings first.</p>
                 </div>
                 <div className="rounded-xl border border-border bg-secondary/20 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Risk Level</p>
-                  <p className="mt-1 text-xl font-extrabold text-card-foreground">{securitySummary.riskLevel}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">AI support</p>
+                  <p className="mt-1 text-sm font-medium text-card-foreground">Gemini shows impact and remediation steps.</p>
                 </div>
                 <div className="rounded-xl border border-border bg-secondary/20 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Critical Risks</p>
-                  <p className="mt-1 text-xl font-extrabold text-card-foreground">{securitySummary.criticalRisks}</p>
-                </div>
-                <div className="rounded-xl border border-border bg-secondary/20 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">AI Fixes Available</p>
-                  <p className="mt-1 text-xl font-extrabold text-card-foreground">{securitySummary.aiFixesAvailable}</p>
-                </div>
-                <div className="rounded-xl border border-border bg-secondary/20 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Potential Gain</p>
-                  <p className="mt-1 text-xl font-extrabold text-emerald-600">+{securitySummary.potentialSecurityGain}</p>
-                  {typeof securitySummary.improvement === "number" && (
-                    <p className={`text-[10px] font-medium mt-0.5 ${securitySummary.improvement >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
-                      Previous scan {previousScan ? previousScan.security_score : "—"} · {securitySummary.improvement >= 0 ? "+" : ""}{securitySummary.improvement} change
-                    </p>
-                  )}
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Improvement potential</p>
+                  <p className="mt-1 text-sm font-medium text-emerald-600">Up to +{potentialSecurityGain} score gain</p>
                 </div>
               </div>
             </motion.div>
@@ -129,7 +106,7 @@ const Index = () => {
                   <div className="flex items-center gap-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 px-3 py-1.5 text-xs text-emerald-700 dark:text-emerald-400 font-semibold animate-pulse">
                     <ArrowUpRight className="h-3.5 w-3.5" />
                     <span>POTENTIAL SECURITY GAIN</span>
-                    <span className="font-bold">+{securitySummary.potentialSecurityGain}</span>
+                    <span className="font-bold">+{potentialSecurityGain}</span>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 px-3 py-1.5 text-xs text-emerald-700 dark:text-emerald-400 font-semibold">
