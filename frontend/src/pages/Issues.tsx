@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { TopNav } from "@/components/TopNav";
@@ -43,12 +43,23 @@ const Issues = () => {
   const toggleMutation = useToggleStatus();
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const itemsPerPage = 10;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [severityFilter, statusFilter]);
 
   const filteredIssues = issues.filter((issue) => {
     if (severityFilter !== "all" && issue.severity !== severityFilter) return false;
     if (statusFilter !== "all" && issue.status !== statusFilter) return false;
     return true;
   });
+
+  const totalPages = Math.ceil(filteredIssues.length / itemsPerPage);
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentIssues = filteredIssues.slice(indexOfFirstItem, indexOfLastItem);
 
   const toggleStatus = (id: string) => {
     const issue = issues.find((i) => i.id === id);
@@ -135,7 +146,7 @@ const Issues = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredIssues.map((issue) => (
+                  {currentIssues.map((issue) => (
                     <TableRow key={issue.id} className="border-border hover:bg-primary/[0.03] transition-colors">
                       <TableCell className="font-mono text-xs font-medium text-card-foreground">{issue.repository}</TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground max-w-[160px] truncate hidden md:table-cell">{issue.fileName}</TableCell>
@@ -181,6 +192,54 @@ const Issues = () => {
                 </TableBody>
               </Table>
               </div>
+
+              {/* Pagination controls */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between border-t border-border px-4 py-3 bg-secondary/10 flex-wrap gap-3">
+                  <div className="text-xs text-muted-foreground">
+                    Showing <span className="font-medium text-foreground">{indexOfFirstItem + 1}</span> to{" "}
+                    <span className="font-medium text-foreground">
+                      {Math.min(indexOfLastItem, filteredIssues.length)}
+                    </span>{" "}
+                    of <span className="font-medium text-foreground">{filteredIssues.length}</span> issues
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                      disabled={currentPage === 1}
+                      className="h-8 rounded-lg text-xs"
+                    >
+                      Previous
+                    </Button>
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                        <Button
+                          key={page}
+                          variant={currentPage === page ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setCurrentPage(page)}
+                          className={`h-8 w-8 rounded-lg text-xs p-0 ${
+                            currentPage === page ? "" : "hover:bg-accent hover:text-accent-foreground"
+                          }`}
+                        >
+                          {page}
+                        </Button>
+                      ))}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                      disabled={currentPage === totalPages}
+                      className="h-8 rounded-lg text-xs"
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
             </motion.div>
             )}
           </main>

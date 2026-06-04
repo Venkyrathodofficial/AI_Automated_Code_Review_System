@@ -24,7 +24,7 @@ import { useAuth } from "@/hooks/useAuth";
 /*  Reusable tiny components                                          */
 /* ------------------------------------------------------------------ */
 
-const fadeUp = {
+const fadeUp: any = {
   hidden: { opacity: 0, y: 30 },
   visible: (i: number) => ({
     opacity: 1,
@@ -415,6 +415,55 @@ const Landing = () => {
         </div>
       </section>
 
+      {/* ───── Trust / Zero-Knowledge Section ───── */}
+      <section className="py-20 sm:py-28 bg-emerald-950/[0.02] dark:bg-emerald-950/[0.04] border-y border-emerald-900/5 dark:border-emerald-800/10">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-14">
+            <SectionBadge>
+              <ShieldCheck className="h-3 w-3" /> Privacy & Security
+            </SectionBadge>
+            <h2 className="mt-4 text-3xl sm:text-4xl font-extrabold tracking-tight">
+              Zero Human <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">Code Access</span>
+            </h2>
+            <p className="mt-4 text-muted-foreground max-w-2xl mx-auto">
+              Your source code is your most valuable asset. We designed Sentinel with strict data privacy barriers so no human, not even our administrators, can ever read your code.
+            </p>
+          </div>
+
+          <div className="grid sm:grid-cols-3 gap-8">
+            <div className="rounded-2xl border border-emerald-900/10 dark:border-emerald-800/20 bg-card p-6 shadow-sm flex flex-col items-start gap-4">
+              <div className="h-10 w-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                <Lock className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <h3 className="text-base font-bold text-card-foreground">Zero Retention Storage</h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Code files are processed entirely in memory during scans. We never write, store, or clone your repository source code onto our disks.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-emerald-900/10 dark:border-emerald-800/20 bg-card p-6 shadow-sm flex flex-col items-start gap-4">
+              <div className="h-10 w-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                <ShieldCheck className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <h3 className="text-base font-bold text-card-foreground">Admin Isolation</h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Administrators only see aggregated scan statistics and repository IDs. File contents, vulnerability explanations, and code fixes are strictly restricted to your session.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-emerald-900/10 dark:border-emerald-800/20 bg-card p-6 shadow-sm flex flex-col items-start gap-4">
+              <div className="h-10 w-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                <Zap className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <h3 className="text-base font-bold text-card-foreground">Secure Integrations</h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Sentinel connects via official GitHub OAuth Apps. Access tokens are fully encrypted, and connection sessions can be revoked instantly at any time.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ───── CTA ───── */}
       <section className="py-20 sm:py-28">
         <div className="mx-auto max-w-3xl text-center px-4 sm:px-6">
@@ -448,10 +497,14 @@ const Landing = () => {
         </div>
       </section>
 
-      {/* ───── Footer ───── */}
       <footer className="border-t border-border bg-muted/30">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-10">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-10 space-y-6">
+          <div className="text-center max-w-3xl mx-auto bg-primary/[0.02] border border-primary/5 p-4 rounded-xl">
+            <p className="text-xs text-muted-foreground leading-relaxed font-medium">
+              🛡️ <strong>Zero Human Code Access Architecture:</strong> CodeAurora Sentinel follows a Zero Human Code Access architecture. Repository analysis is automated and administrators cannot view source code, secrets, or business logic.
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-border/40 pt-6">
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/80">
                 <ShieldCheck className="h-4 w-4 text-primary-foreground" />

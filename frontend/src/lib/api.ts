@@ -18,15 +18,26 @@ export interface ReviewRow {
   commit_message: string;
   status: string;
   created_at: string | null;
+  ai_model?: string;
+  confidence_score?: number;
+  validation_status?: string;
+  line_number?: number | null;
+  category?: string;
+  secure_code?: string;
+  best_practices?: string;
+  offending_line?: string;
 }
 
 export interface Stats {
   totalReviews: number;
   critical: number;
+  high: number;
   medium: number;
   low: number;
   open: number;
   resolved: number;
+  securityScore?: number;
+  fixesAvailable?: number;
 }
 
 export interface Repository {

@@ -116,6 +116,11 @@ export function AppSidebar() {
             <LogOut className="h-[18px] w-[18px] shrink-0" />
             {!collapsed && <span>Log Out</span>}
           </button>
+          {!collapsed && (
+            <div className="p-3 bg-primary/[0.03] border border-primary/5 rounded-xl text-[9px] text-muted-foreground leading-relaxed font-medium">
+              🛡️ Zero Human Code Access. Sentinel analysis is automated. Admins cannot access code or secrets.
+            </div>
+          )}
         </div>
       </SidebarContent>
     </Sidebar>

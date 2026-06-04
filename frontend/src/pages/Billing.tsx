@@ -104,11 +104,14 @@ function FAQItem({ question, answer }: FAQItemProps) {
 
 export default function BillingPage() {
   const [loading, setLoading] = useState(true);
-  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
-  const [verifyingPayment, setVerifyingPayment] = useState(false);
-  const [billingPeriod, setBillingPeriod] = useState<"monthly" | "yearly">("monthly");
+  const [promoCode, setPromoCode] = useState("");
+  const [promoLoading, setPromoLoading] = useState(false);
+  const [promoSuccess, setPromoSuccess] = useState<string | null>(null);
   const [isDemoModalOpen, setIsDemoModalOpen] = useState(false);
   const [demoFormSubmitted, setDemoFormSubmitted] = useState(false);
+  const [verifyingPayment, setVerifyingPayment] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const [billingPeriod, setBillingPeriod] = useState("monthly");
   
   const [sub, setSub] = useState<Subscription>({
     plan_tier: "free",
@@ -184,7 +187,7 @@ export default function BillingPage() {
 
       const data = await res.json();
       if (data.success) {
-        toast.success(`🎉 Payment successful! Your ${data.plan_tier} plan is now active.`);
+        toast.success(`ðŸŽ‰ Payment successful! Your ${data.plan_tier} plan is now active.`);
         // Clean up URL params
         window.history.replaceState({}, "", window.location.pathname);
         await fetchSubscription();
@@ -243,7 +246,41 @@ export default function BillingPage() {
     }
   };
 
-  // No portal redirect needed for Cashfree — users manage billing in-app
+  const handlePromoRedeem = async () => {
+    if (!promoCode.trim()) {
+      toast.error("Please enter a promo code");
+      return;
+    }
+    try {
+      setPromoLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { toast.error("Please log in first"); return; }
+
+      const res = await fetch("/api/v1/promo/redeem", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ code: promoCode.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Invalid promo code");
+        return;
+      }
+      setPromoSuccess(data.message || "Pro access activated!");
+      toast.success(data.message || "Pro access activated!");
+      setPromoCode("");
+      await fetchSubscription();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to redeem code");
+    } finally {
+      setPromoLoading(false);
+    }
+  };
+
+  // No portal redirect needed - users manage billing in-app
 
   const scanPercentage = Math.min(100, (sub.monthly_scans_used / sub.monthly_scans_limit) * 100);
   const isLimitReached = sub.monthly_scans_used >= sub.monthly_scans_limit;
@@ -263,7 +300,7 @@ export default function BillingPage() {
       <div className="min-h-screen flex w-full">
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0">
-          <TopNav title="Pricing & Quota" subtitle="Choose the right plan to scale your GitHub security review pipeline" />
+          <TopNav title="Plans & Early Access" subtitle="Access premium features with a promo code" />
           
           <main className="flex-1 overflow-auto p-4 sm:p-8 bg-background relative">
             {/* Ambient Background Glows */}
@@ -315,59 +352,29 @@ export default function BillingPage() {
                   </div>
 
                   <div className="flex flex-col gap-2 shrink-0 sm:flex-row md:flex-col">
-                    {verifyingPayment && (
-                      <div className="flex items-center gap-2 text-xs text-primary bg-primary/10 border border-primary/20 rounded-xl p-3 max-w-sm">
-                        <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
-                        <span>Verifying your payment with Cashfree...</span>
-                      </div>
-                    )}
-                    {sub.plan_tier !== "free" && (
-                      <div className="text-xs text-muted-foreground bg-secondary/50 border border-border rounded-xl p-3 max-w-sm">
-                        <span className="font-semibold">Active paid plan.</span> Your features are active until the end of your billing cycle.
-                      </div>
-                    )}
-                    {isLimitReached && sub.plan_tier === "free" && (
-                      <div className="flex items-center gap-2 text-xs text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 max-w-sm">
-                        <AlertTriangle className="h-4.5 w-4.5 shrink-0 text-amber-500 animate-bounce" />
-                        <span>Monthly scan limit reached. Choose a paid tier below to unlock unlimited scans.</span>
+                    {(sub.plan_tier === "beta" || sub.plan_tier === "admin") && (
+                      <div className="text-xs bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 max-w-sm">
+                        <span className="font-bold text-emerald-400">Early Access Active</span>
+                        <p className="text-muted-foreground mt-0.5">
+                          {sub.current_period_end ? `Expires ${new Date(sub.current_period_end).toLocaleDateString()}` : "Lifetime access"}
+                        </p>
                       </div>
                     )}
                   </div>
                 </motion.div>
 
-                {/* 2. Billing Period Toggle & Header */}
+                {/* 2. Header */}
                 <div className="text-center space-y-4">
                   <h2 className="text-3xl font-extrabold text-card-foreground tracking-tight sm:text-4xl">
-                    Simple, transparent pricing.
+                    Plans & Pricing
                   </h2>
                   <p className="text-muted-foreground max-w-lg mx-auto text-sm sm:text-base">
-                    Invest in zero-day security. Protect your repositories with CodeAurora Sentinel.
+                    Sentinel is in early access. Unlock premium features using an Early Access Code.
                   </p>
-
-                  <div className="flex items-center justify-center gap-3 pt-2">
-                    <span className={`text-xs sm:text-sm font-semibold transition-colors ${billingPeriod === "monthly" ? "text-card-foreground" : "text-muted-foreground"}`}>Monthly billing</span>
-                    <button
-                      onClick={() => setBillingPeriod(billingPeriod === "monthly" ? "yearly" : "monthly")}
-                      className="relative w-12 h-6 bg-secondary border border-border rounded-full p-0.5 transition-colors focus:outline-none"
-                    >
-                      <motion.div
-                        layout
-                        transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                        className="w-4.5 h-4.5 bg-primary rounded-full"
-                        style={{ marginLeft: billingPeriod === "yearly" ? "24px" : "0px" }}
-                      />
-                    </button>
-                    <span className={`text-xs sm:text-sm font-semibold transition-colors flex items-center gap-1.5 ${billingPeriod === "yearly" ? "text-card-foreground" : "text-muted-foreground"}`}>
-                      Yearly billing
-                      <span className="bg-primary/20 text-primary border border-primary/20 text-[10px] font-bold px-1.5 py-0.5 rounded-md">
-                        Save 20%
-                      </span>
-                    </span>
-                  </div>
                 </div>
 
                 {/* 3. Tiers / Pricing Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-4 items-stretch">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 items-stretch">
                   
                   {/* Free Plan */}
                   <motion.div 
@@ -383,12 +390,12 @@ export default function BillingPage() {
                     )}
                     <div className="space-y-4">
                       <div>
-                        <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Free Plan</h4>
+                        <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Free</h4>
                         <div className="flex items-baseline gap-1 mt-3">
-                          <span className="text-3xl font-extrabold text-card-foreground">₹0</span>
+                          <span className="text-3xl font-extrabold text-card-foreground">{"\u20B9"}0</span>
                           <span className="text-xs text-muted-foreground">/month</span>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-2">Exploring the platform & students trying Sentinel</p>
+                        <p className="text-xs text-muted-foreground mt-2">Students, explorers & open source contributors</p>
                       </div>
 
                       <ul className="space-y-3 text-xs text-card-foreground pt-4 border-t border-border">
@@ -398,67 +405,55 @@ export default function BillingPage() {
                         </li>
                         <li className="flex items-start gap-2">
                           <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                          <span>Security Score & Vulnerability Detection</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
                           <span>GitHub Repository Integration</span>
                         </li>
                         <li className="flex items-start gap-2">
                           <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                          <span>Security Score Generation</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                          <span>Vulnerability Detection</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
                           <span>Basic AI Recommendations</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                          <span>Community Support</span>
                         </li>
                       </ul>
                     </div>
 
                     <div className="pt-6">
                       <Button disabled variant="outline" className="w-full rounded-xl text-xs h-10">
-                        {sub.plan_tier === "free" ? "Active Free Tier" : "Free Plan"}
+                        {sub.plan_tier === "free" ? "Current Plan" : "Free"}
                       </Button>
                     </div>
                   </motion.div>
 
-                  {/* Basic Plan */}
+                  {/* Beta Plan */}
                   <motion.div 
                     initial={{ opacity: 0, y: 15 }} 
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.2 }}
-                    className={`rounded-2xl border p-6 bg-card/60 backdrop-blur-md flex flex-col justify-between h-full relative transition-all duration-300 ${sub.plan_tier === "basic" ? "border-primary ring-1 ring-primary/20 shadow-md" : "border-border shadow-sm hover:border-muted-foreground/20"}`}
+                    className={`rounded-2xl border p-6 bg-card/60 backdrop-blur-md flex flex-col justify-between h-full relative transition-all duration-300 ${
+                      (sub.plan_tier === "beta" || sub.plan_tier === "basic") 
+                        ? "border-emerald-500/50 ring-1 ring-emerald-500/20 shadow-lg" 
+                        : "border-primary/30 shadow-sm hover:border-primary/50"
+                    }`}
                   >
-                    {sub.plan_tier === "basic" && (
-                      <span className="absolute -top-3 left-6 bg-primary text-primary-foreground text-[10px] uppercase font-extrabold tracking-wider px-2.5 py-0.5 rounded-full">
-                        Current Plan
+                    {(sub.plan_tier === "beta" || sub.plan_tier === "basic") && (
+                      <span className="absolute -top-3 left-6 bg-emerald-500 text-white text-[10px] uppercase font-extrabold tracking-wider px-2.5 py-0.5 rounded-full">
+                        Active
                       </span>
                     )}
                     <span className="absolute -top-3 right-6 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-[10px] uppercase font-extrabold tracking-wider px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
-                      <Sparkles className="h-3 w-3" /> 🔥 Most Popular
+                      <Sparkles className="h-3 w-3" /> Early Access
                     </span>
                     
                     <div className="space-y-4">
                       <div>
-                        <h4 className="text-xs font-bold text-primary uppercase tracking-widest">Basic Plan</h4>
+                        <h4 className="text-xs font-bold text-primary uppercase tracking-widest">Pro</h4>
                         <div className="flex items-baseline gap-1 mt-3">
-                          <span className="text-3xl font-extrabold text-card-foreground">
-                            {billingPeriod === "monthly" ? "₹199" : "₹1,910"}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {billingPeriod === "monthly" ? "/month" : "/year"}
-                          </span>
+                          <span className="text-3xl font-extrabold text-card-foreground">{"\u20B9"}199</span>
+                          <span className="text-xs text-muted-foreground">/month</span>
                         </div>
-                        {billingPeriod === "yearly" && (
-                          <span className="text-[10px] text-emerald-500 font-semibold mt-1 block">
-                            Equivalent to ₹159/month (Save ~20%)
-                          </span>
-                        )}
-                        <p className="text-xs text-muted-foreground mt-2">Individual developers, contributors, & hackathons</p>
+                        <span className="text-[11px] text-emerald-400 font-bold block mt-1">Free during early access with code</span>
+                        <p className="text-xs text-muted-foreground mt-1">Hackathon teams, developers & contributors</p>
                       </div>
 
                       <ul className="space-y-3 text-xs text-card-foreground pt-4 border-t border-border">
@@ -468,143 +463,39 @@ export default function BillingPage() {
                         </li>
                         <li className="flex items-start gap-2">
                           <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span>Advanced Vulnerability Analysis</span>
+                          <span>AI Vulnerability Explanations</span>
                         </li>
                         <li className="flex items-start gap-2">
                           <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span className="font-semibold text-primary">AI-Powered Fix Suggestions</span>
+                          <span className="font-semibold text-primary">AI-Generated Secure Fix Code</span>
                         </li>
                         <li className="flex items-start gap-2">
                           <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span>PDF Security Reports download</span>
+                          <span>PDF Security Reports</span>
                         </li>
                         <li className="flex items-start gap-2">
                           <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span>Security History Tracking</span>
+                          <span>Full Scan History</span>
                         </li>
                         <li className="flex items-start gap-2">
                           <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span>Priority Email Support</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span>Repository Security Dashboard</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span>Detailed Risk Categorization</span>
+                          <span>Priority Features & Support</span>
                         </li>
                       </ul>
                     </div>
 
-                    <div className="pt-6">
-                      {sub.plan_tier === "basic" ? (
-                        <Button disabled variant="outline" className="w-full rounded-xl text-xs h-10">
-                          Active Plan
+                    <div className="pt-6 space-y-2">
+                      {(sub.plan_tier === "beta" || sub.plan_tier === "basic") ? (
+                        <Button disabled className="w-full rounded-xl text-xs h-10 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 cursor-default">
+                          {"\u2713"} Early Access Active
                         </Button>
                       ) : (
                         <Button 
-                          onClick={() => handleCheckout("basic")} 
-                          disabled={checkoutLoading !== null}
-                          className="w-full rounded-xl text-xs h-10 bg-primary hover:bg-primary/95 text-primary-foreground font-semibold"
+                          disabled 
+                          className="w-full rounded-xl text-xs h-10 bg-primary/10 text-primary border border-primary/20 cursor-not-allowed"
                         >
-                          {checkoutLoading === "basic" ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-                          ) : (
-                            <>Upgrade to Basic <ArrowRight className="h-3.5 w-3.5 ml-1.5" /></>
-                          )}
-                        </Button>
-                      )}
-                    </div>
-                  </motion.div>
-
-                  {/* Startup Plan */}
-                  <motion.div 
-                    initial={{ opacity: 0, y: 15 }} 
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.3 }}
-                    className={`rounded-2xl border p-6 bg-card/45 backdrop-blur-md flex flex-col justify-between h-full relative transition-all duration-300 ${sub.plan_tier === "startup" ? "border-primary ring-1 ring-primary/20 shadow-md" : "border-border shadow-sm hover:border-muted-foreground/20"}`}
-                  >
-                    {sub.plan_tier === "startup" && (
-                      <span className="absolute -top-3 left-6 bg-primary text-primary-foreground text-[10px] uppercase font-extrabold tracking-wider px-2.5 py-0.5 rounded-full">
-                        Current Plan
-                      </span>
-                    )}
-                    <span className="absolute -top-3 right-6 bg-gradient-to-r from-violet-600 to-primary text-white text-[10px] uppercase font-extrabold tracking-wider px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
-                      <Zap className="h-3 w-3" /> 🚀 Recommended
-                    </span>
-                    
-                    <div className="space-y-4">
-                      <div>
-                        <h4 className="text-xs font-bold text-violet-500 uppercase tracking-widest">Startup Plan</h4>
-                        <div className="flex items-baseline gap-1 mt-3">
-                          <span className="text-3xl font-extrabold text-card-foreground">
-                            {billingPeriod === "monthly" ? "₹999" : "₹9,590"}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {billingPeriod === "monthly" ? "/month" : "/year"}
-                          </span>
-                        </div>
-                        {billingPeriod === "yearly" && (
-                          <span className="text-[10px] text-emerald-500 font-semibold mt-1 block">
-                            Equivalent to ₹799/month (Save ~20%)
-                          </span>
-                        )}
-                        <p className="text-xs text-muted-foreground mt-2">Startup founders, SaaS builders, & small teams</p>
-                      </div>
-
-                      <ul className="space-y-3 text-xs text-card-foreground pt-4 border-t border-border">
-                        <li className="flex items-start gap-2">
-                          <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span className="font-semibold text-primary"><strong>1,000 AI Security Scans</strong> /mo</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span className="font-bold text-violet-500">Continuous Repo Monitoring</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span>GitHub Webhook Integration</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span>Team Dashboard & Analytics</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span>Security Trend Analytics</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span>Email/Slack Security Alerts</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span>Team Collaboration Features</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span>Priority Processing queues</span>
-                        </li>
-                      </ul>
-                    </div>
-
-                    <div className="pt-6">
-                      {sub.plan_tier === "startup" ? (
-                        <Button disabled variant="outline" className="w-full rounded-xl text-xs h-10">
-                          Active Plan
-                        </Button>
-                      ) : (
-                        <Button 
-                          onClick={() => handleCheckout("startup")} 
-                          disabled={checkoutLoading !== null}
-                          className="w-full rounded-xl text-xs h-10 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white font-semibold"
-                        >
-                          {checkoutLoading === "startup" ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-                          ) : (
-                            <>Upgrade to Startup <ArrowRight className="h-3.5 w-3.5 ml-1.5" /></>
-                          )}
+                          <Lock className="h-3.5 w-3.5 mr-1.5" />
+                          Coming Soon - Use Code Below
                         </Button>
                       )}
                     </div>
@@ -614,10 +505,10 @@ export default function BillingPage() {
                   <motion.div 
                     initial={{ opacity: 0, y: 15 }} 
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.4 }}
-                    className={`rounded-2xl border p-6 bg-card/40 backdrop-blur-md flex flex-col justify-between h-full relative transition-all duration-300 ${sub.plan_tier === "enterprise" ? "border-primary ring-1 ring-primary/20 shadow-md" : "border-border shadow-sm hover:border-muted-foreground/20"}`}
+                    transition={{ delay: 0.3 }}
+                    className={`rounded-2xl border p-6 bg-card/40 backdrop-blur-md flex flex-col justify-between h-full relative transition-all duration-300 ${sub.plan_tier === "enterprise" || sub.plan_tier === "admin" ? "border-primary ring-1 ring-primary/20 shadow-md" : "border-border shadow-sm hover:border-muted-foreground/20"}`}
                   >
-                    {sub.plan_tier === "enterprise" && (
+                    {(sub.plan_tier === "enterprise" || sub.plan_tier === "admin") && (
                       <span className="absolute -top-3 left-6 bg-primary text-primary-foreground text-[10px] uppercase font-extrabold tracking-wider px-2.5 py-0.5 rounded-full">
                         Current Plan
                       </span>
@@ -630,7 +521,7 @@ export default function BillingPage() {
                         <div className="flex items-baseline gap-1 mt-3">
                           <span className="text-2xl font-extrabold text-card-foreground">Custom</span>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-3">Large development organizations & scaleups</p>
+                        <p className="text-xs text-muted-foreground mt-3">Large organisations, universities & scaleups</p>
                       </div>
 
                       <ul className="space-y-3 text-xs text-card-foreground pt-4 border-t border-border">
@@ -644,23 +535,11 @@ export default function BillingPage() {
                         </li>
                         <li className="flex items-start gap-2">
                           <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span>SOC2/Compliance Reports</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span>Custom SSO & SAML Authentication</span>
+                          <span>SOC2 / Compliance Reports</span>
                         </li>
                         <li className="flex items-start gap-2">
                           <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
                           <span>Custom Scanning Policy Rules</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span>Audit Logs & Team Management</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span>Dedicated Scanning Infrastructure</span>
                         </li>
                         <li className="flex items-start gap-2">
                           <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
@@ -675,84 +554,63 @@ export default function BillingPage() {
                         className="w-full rounded-xl text-xs h-10 border border-border hover:bg-secondary"
                         variant="outline"
                       >
-                        Book Demo
+                        Contact Sales
                       </Button>
                     </div>
                   </motion.div>
 
                 </div>
 
-                {/* 4. Trust Badges Section */}
-                <div className="border-t border-border/85 pt-12 space-y-6">
-                  <div className="text-center space-y-2">
-                    <h3 className="text-xl font-bold text-card-foreground">Secure by Design</h3>
-                    <p className="text-xs sm:text-sm text-muted-foreground">Built to respect your IP. We never cache your proprietary code.</p>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
-                    
-                    <div className="flex gap-3 p-4 rounded-xl border border-border bg-card/20 backdrop-blur-sm">
-                      <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                        <Sparkles className="h-4.5 w-4.5 text-primary" />
+                {/* 4. Promo Code Redemption Card */}
+                {sub.plan_tier === "free" && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.4 }}
+                    className="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/5 to-violet-500/5 backdrop-blur-md p-8 text-center space-y-5 shadow-xl"
+                  >
+                    <div className="space-y-2">
+                      <div className="inline-flex items-center justify-center h-12 w-12 rounded-2xl bg-primary/15 mx-auto">
+                        <Terminal className="h-6 w-6 text-primary" />
                       </div>
-                      <div>
-                        <h4 className="text-xs font-bold text-card-foreground uppercase tracking-wider">Powered by Gemini AI</h4>
-                        <p className="text-[11px] text-muted-foreground mt-1">Leverages Gemini 1.5 Flash models for lightning-fast semantic checks.</p>
-                      </div>
+                      <h3 className="text-xl font-bold text-card-foreground">Have an Early Access Code?</h3>
+                      <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+                        Enter your early access code to unlock 100 scans/month free.
+                      </p>
                     </div>
 
-                    <div className="flex gap-3 p-4 rounded-xl border border-border bg-card/20 backdrop-blur-sm">
-                      <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                        <ShieldCheck className="h-4.5 w-4.5 text-primary" />
+                    {promoSuccess ? (
+                      <div className="flex items-center justify-center gap-2 text-emerald-400 font-semibold text-sm bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
+                        <Check className="h-5 w-5" />
+                        {promoSuccess}
                       </div>
-                      <div>
-                        <h4 className="text-xs font-bold text-card-foreground uppercase tracking-wider">Secure Cashfree Checkout</h4>
-                        <p className="text-[11px] text-muted-foreground mt-1">Payments are processed securely via Cashfree. We do not store card details.</p>
+                    ) : (
+                      <div className="flex gap-2 max-w-md mx-auto">
+                        <input
+                          id="promo-code-input"
+                          type="text"
+                          value={promoCode}
+                          onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                          onKeyDown={(e) => e.key === "Enter" && handlePromoRedeem()}
+                          placeholder="e.g. EARLYACCESS100"
+                          className="flex-1 rounded-xl border border-border bg-background text-card-foreground text-sm px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono tracking-wider uppercase placeholder:normal-case placeholder:tracking-normal"
+                          disabled={promoLoading}
+                        />
+                        <Button
+                          id="promo-activate-btn"
+                          onClick={handlePromoRedeem}
+                          disabled={promoLoading || !promoCode.trim()}
+                          className="rounded-xl px-5 h-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-sm shrink-0"
+                        >
+                          {promoLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Activate"}
+                        </Button>
                       </div>
-                    </div>
+                    )}
+                  </motion.div>
+                )}
 
-                    <div className="flex gap-3 p-4 rounded-xl border border-border bg-card/20 backdrop-blur-sm">
-                      <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                        <Lock className="h-4.5 w-4.5 text-primary" />
-                      </div>
-                      <div>
-                        <h4 className="text-xs font-bold text-card-foreground uppercase tracking-wider">GitHub OAuth Protected</h4>
-                        <p className="text-[11px] text-muted-foreground mt-1">Fine-grained token access, fully integrated into GitHub security flows.</p>
-                      </div>
-                    </div>
 
-                    <div className="flex gap-3 p-4 rounded-xl border border-border bg-card/20 backdrop-blur-sm">
-                      <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                        <Database className="h-4.5 w-4.5 text-primary" />
-                      </div>
-                      <div>
-                        <h4 className="text-xs font-bold text-card-foreground uppercase tracking-wider">No Permanent Code Storage</h4>
-                        <p className="text-[11px] text-muted-foreground mt-1">Source files are analyzed in memory and discarded instantly after scans.</p>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-3 p-4 rounded-xl border border-border bg-card/20 backdrop-blur-sm">
-                      <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                        <Lock className="h-4.5 w-4.5 text-primary" />
-                      </div>
-                      <div>
-                        <h4 className="text-xs font-bold text-card-foreground uppercase tracking-wider">End-to-End Encryption</h4>
-                        <p className="text-[11px] text-muted-foreground mt-1">Database rows are secured under PostgreSQL and encrypted TLS keys.</p>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-3 p-4 rounded-xl border border-border bg-card/20 backdrop-blur-sm">
-                      <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                        <Terminal className="h-4.5 w-4.5 text-primary" />
-                      </div>
-                      <div>
-                        <h4 className="text-xs font-bold text-card-foreground uppercase tracking-wider">Built for Developers</h4>
-                        <p className="text-[11px] text-muted-foreground mt-1">Clean webhooks, Slack integration, and automated commit fixes.</p>
-                      </div>
-                    </div>
-
-                  </div>
-                </div>
+                {/* 4. Trust Badges Section Removed */}
 
                 {/* 5. Animated Counters Section */}
                 <div className="border-t border-border/80 pt-12">
@@ -859,9 +717,9 @@ export default function BillingPage() {
                       </div>
                       <button 
                         onClick={() => setIsDemoModalOpen(false)}
-                        className="text-muted-foreground hover:text-card-foreground p-1"
+                        className="text-muted-foreground hover:text-card-foreground p-1 text-sm"
                       >
-                        ✕
+                        {"\u2715"}
                       </button>
                     </div>
 

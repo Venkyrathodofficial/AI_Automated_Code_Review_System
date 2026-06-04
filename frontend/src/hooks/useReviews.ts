@@ -43,6 +43,9 @@ export function rowToIssue(r: ReviewRow): Issue {
     category: r.category,
     secureCode: r.secure_code,
     bestPractices: r.best_practices,
+    aiModel: r.ai_model,
+    confidenceScore: r.confidence_score,
+    validationStatus: r.validation_status,
   };
 }
 

@@ -265,6 +265,24 @@ if (supabaseServiceKey) {
   console.log("⚠️ Admin dashboard may not show all data. Set SUPABASE_SERVICE_KEY for full access.");
 }
 
+// Startup migration backfill to ensure free tier has 5 scans limit
+(async () => {
+  try {
+    const { error } = await supabase
+      .from("subscriptions")
+      .update({ monthly_scans_limit: 5 })
+      .eq("plan_tier", "free")
+      .eq("monthly_scans_limit", 3);
+    if (error) {
+      console.log("⚠️ Failed to auto-upgrade free tier limits:", error.message);
+    } else {
+      console.log("✅ Auto-upgraded free tier limits to 5 scans/month.");
+    }
+  } catch (err) {
+    console.log("⚠️ Error upgrading free tier limits:", err.message);
+  }
+})();
+
 function supabaseForUser(token) {
   return createClient(supabaseUrl, supabaseKey, {
     global: { headers: { Authorization: `Bearer ${token}` } },
@@ -291,6 +309,60 @@ async function authMiddleware(req, res, next) {
   req.token = token;
   req.supabase = supabaseForUser(token);
   next();
+}
+
+// ============================
+// Beta Plan Configuration
+// ============================
+const PLAN_LIMITS = {
+  free:  { scans: 5,      fileCap: 100, sizeMbCap: 10,  rateLimitMs: 60000  },
+  beta:  { scans: 100,    fileCap: 500, sizeMbCap: 50,  rateLimitMs: 15000  },
+  basic: { scans: 100,    fileCap: 500, sizeMbCap: 50,  rateLimitMs: 15000  }, // legacy alias
+  admin: { scans: 999999, fileCap: 999, sizeMbCap: 500, rateLimitMs: 0      },
+};
+
+function getPlanLimits(tier) {
+  return PLAN_LIMITS[tier] || PLAN_LIMITS.free;
+}
+
+// ============================
+// In-Memory Rate Limiter
+// ============================
+// Map<userId, lastScanTimestamp>
+const scanRateLimiter = new Map();
+
+function checkRateLimit(userId, tier) {
+  const limits = getPlanLimits(tier);
+  if (limits.rateLimitMs === 0) return null; // admin — no limit
+  const last = scanRateLimiter.get(userId) || 0;
+  const elapsed = Date.now() - last;
+  if (elapsed < limits.rateLimitMs) {
+    const waitSec = Math.ceil((limits.rateLimitMs - elapsed) / 1000);
+    return `Rate limit: please wait ${waitSec}s before your next scan.`;
+  }
+  return null;
+}
+
+function markScanStarted(userId) {
+  scanRateLimiter.set(userId, Date.now());
+}
+
+// ============================
+// Scan Queue (prevent parallel/duplicate scans)
+// ============================
+// Set<"userId:repoFullName">
+const activeScans = new Set();
+
+function isAlreadyScanning(userId, repoFullName) {
+  return activeScans.has(`${userId}:${repoFullName}`);
+}
+
+function markScanActive(userId, repoFullName) {
+  activeScans.add(`${userId}:${repoFullName}`);
+}
+
+function markScanComplete(userId, repoFullName) {
+  activeScans.delete(`${userId}:${repoFullName}`);
 }
 
 // ============================
@@ -565,7 +637,7 @@ function analyzeFileStatic(filePath, content) {
 }
 
 /** Analyze a single file's content and return issues found. Pre-filters with regex, and validates with Gemini 2.5 Flash. */
-async function analyzeFile(filePath, content) {
+async function analyzeFile(filePath, content, geminiOpts = {}) {
   const potentialIssues = analyzeFileStatic(filePath, content);
   if (potentialIssues.length === 0) {
     return [];
@@ -577,7 +649,7 @@ async function analyzeFile(filePath, content) {
   }
   
   console.log(`🤖 Validating ${potentialIssues.length} issues in ${filePath} using Gemini 2.5 Flash...`);
-  return validateAndExplainIssuesWithGemini(filePath, potentialIssues);
+  return validateAndExplainIssuesWithGemini(filePath, potentialIssues, geminiOpts);
 }
 
 function calculateSecurityScore(issues) {
@@ -605,15 +677,22 @@ function calculateSecurityScore(issues) {
   const scoreDeductions = criticalCount * 15 + highCount * 10 + mediumCount * 5 + lowCount * 2;
   const score = Math.max(0, 100 - scoreDeductions);
   
-  let grade = "D";
+  let grade = "F";
   if (score >= 95) grade = "A+";
   else if (score >= 90) grade = "A";
   else if (score >= 80) grade = "B";
   else if (score >= 70) grade = "C";
+  else if (score >= 60) grade = "D";
+
+  let riskLevel = "Critical";
+  if (score >= 90) riskLevel = "Low";
+  else if (score >= 70) riskLevel = "Medium";
+  else if (score >= 50) riskLevel = "High";
 
   return {
     score,
     grade,
+    riskLevel,
     criticalCount,
     highCount,
     mediumCount,
@@ -622,9 +701,10 @@ function calculateSecurityScore(issues) {
 }
 
 /** Scan an entire repo: fetch files and analyze each one */
-async function scanRepository(repoFullName, userId, ref) {
+async function scanRepository(repoFullName, userId, ref, planTier = "free") {
   const scanId = crypto.randomUUID();
-  console.log(`🔍 Starting full scan of ${repoFullName} for user ${userId}. Scan ID: ${scanId}`);
+  const planLimits = getPlanLimits(planTier);
+  console.log(`🔍 Starting full scan of ${repoFullName} for user ${userId} (plan: ${planTier}). Scan ID: ${scanId}`);
 
   // Fetch user's GitHub token from profiles
   let userToken = null;
@@ -638,6 +718,7 @@ async function scanRepository(repoFullName, userId, ref) {
     files = await fetchRepoTree(repoFullName, userToken);
   } catch (err) {
     console.error(`   ❌ Cannot access repo ${repoFullName}:`, err.message);
+    markScanComplete(userId, repoFullName);
     
     // Create scan history entry even on error
     await supabase.from("scan_history").insert({
@@ -671,16 +752,45 @@ async function scanRepository(repoFullName, userId, ref) {
     return { filesScanned: 0, issuesFound: 0, error: err.message };
   }
 
+  // ── Repo size limits (per plan) ────────────────────────────
+  const totalFiles = files.length;
+  const totalSizeMb = files.reduce((sum, f) => sum + (f.size || 0), 0) / (1024 * 1024);
+
+  if (totalFiles > planLimits.fileCap) {
+    console.warn(`⚠️ Repo ${repoFullName} has ${totalFiles} files — exceeds ${planTier} cap of ${planLimits.fileCap}`);
+  }
+  if (totalSizeMb > planLimits.sizeMbCap) {
+    markScanComplete(userId, repoFullName);
+    await supabase.from("code_reviews").insert([{
+      user_id: userId,
+      repository_name: repoFullName,
+      file_name: "—",
+      issue_title: `Scan blocked — repository too large for ${planTier} plan`,
+      issue_description: `Your repository is ${totalSizeMb.toFixed(1)}MB. The ${planTier} plan supports repositories up to ${planLimits.sizeMbCap}MB. Upgrade to Beta for 50MB support.`,
+      severity: "Low",
+      suggestion: `Upgrade your plan to scan larger repositories. Beta plan supports up to ${planLimits.sizeMbCap}MB.`,
+      optimization_tip: "Enter a promo code on the Plans page to unlock Beta access instantly.",
+      risk_score: 0,
+      commit_id: ref || "size-limit",
+      commit_message: "Scan blocked: repo too large",
+      status: "Open",
+      scan_id: scanId
+    }]);
+    return { filesScanned: 0, issuesFound: 0, error: "Repo too large for plan" };
+  }
+
   console.log(`   Found ${files.length} code files to analyze`);
-  const filesToScan = files.slice(0, 50);
+  // Enforce file cap per plan
+  const filesToScan = files.slice(0, planLimits.fileCap);
   const allIssues = [];
+  const geminiOpts = { userId, scanId, repoName: repoFullName, supabase };
 
   for (const file of filesToScan) {
     try {
       const content = await fetchFileContent(repoFullName, file.path, ref, userToken);
       if (!content) continue;
 
-      const fileIssues = await analyzeFile(file.path, content);
+      const fileIssues = await analyzeFile(file.path, content, geminiOpts);
       for (const issue of fileIssues) {
         allIssues.push({
           user_id: userId,
@@ -699,13 +809,18 @@ async function scanRepository(repoFullName, userId, ref) {
           line_number: issue.line_number || null,
           category: issue.category || "general_vulnerability",
           secure_code: issue.secure_code || "",
-          best_practices: issue.best_practices || ""
+          best_practices: issue.best_practices || "",
+          ai_model: issue.ai_model || "Gemini 2.5 Flash",
+          confidence_score: issue.confidence_score !== undefined ? issue.confidence_score : 0.92,
+          validation_status: issue.validation_status || "passed"
         });
       }
     } catch (err) {
       console.error(`   ⚠️ Error analyzing ${file.path}:`, err.message);
     }
   }
+
+  markScanComplete(userId, repoFullName);
 
   // Calculate score & grade
   const { score, grade, criticalCount, highCount, mediumCount, lowCount } = calculateSecurityScore(allIssues);
@@ -828,7 +943,10 @@ async function analyzeChangedFiles(repoFullName, userId, filePaths, commitId, co
           line_number: issue.line_number || null,
           category: issue.category || "general_vulnerability",
           secure_code: issue.secure_code || "",
-          best_practices: issue.best_practices || ""
+          best_practices: issue.best_practices || "",
+          ai_model: issue.ai_model || "Gemini 2.5 Flash",
+          confidence_score: issue.confidence_score !== undefined ? issue.confidence_score : 0.92,
+          validation_status: issue.validation_status || "passed"
         });
       }
     } catch (err) {
@@ -1281,6 +1399,38 @@ app.delete("/api/repositories/:repoName", authMiddleware, async (req, res) => {
 });
 
 // ============================
+// API: Get original file content from GitHub
+// ============================
+app.get("/api/file-content", authMiddleware, async (req, res) => {
+  try {
+    const { file, repo, ref } = req.query;
+    if (!file || !repo) {
+      return res.status(400).json({ error: "Missing file or repo parameters" });
+    }
+
+    // Get user's github token from profile
+    let userToken = null;
+    try {
+      const { data: profile } = await req.supabase
+        .from("profiles")
+        .select("github_token")
+        .eq("id", req.user.id)
+        .single();
+      if (profile && profile.github_token) userToken = profile.github_token;
+    } catch {}
+
+    const content = await fetchFileContent(repo, file, ref, userToken);
+    if (content === null) {
+      return res.status(404).json({ error: "File not found or access denied" });
+    }
+
+    return res.json({ code: content });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================
 // API: Get user's code reviews
 // ============================
 app.get("/api/reviews", authMiddleware, async (req, res) => {
@@ -1294,7 +1444,16 @@ app.get("/api/reviews", authMiddleware, async (req, res) => {
     if (error) {
       return res.status(500).json({ error: error.message });
     }
-    return res.json(data || []);
+    
+    // Enrich reviews with AI verification fallbacks for legacy compatibility
+    const reviews = (data || []).map(r => ({
+      ...r,
+      ai_model: r.ai_model || "Gemini 2.5 Flash",
+      confidence_score: r.confidence_score !== null && r.confidence_score !== undefined ? Number(r.confidence_score) : 0.92,
+      validation_status: r.validation_status || "passed"
+    }));
+    
+    return res.json(reviews);
   } catch (err) {
     return res.status(500).json({ error: "Internal Server Error" });
   }
@@ -1923,15 +2082,32 @@ app.post("/api/repositories/scan", authMiddleware, async (req, res) => {
     }
 
     // Check subscription plan limits
-    const { data: sub } = await supabase
+    const { data: sub } = await req.supabase
       .from("subscriptions")
-      .select("monthly_scans_used, monthly_scans_limit")
+      .select("monthly_scans_used, monthly_scans_limit, plan_tier")
       .eq("user_id", req.user.id)
-      .single();
-      
+      .maybeSingle();
+
+    const planTier = sub?.plan_tier || "free";
+
     if (sub && sub.monthly_scans_used >= sub.monthly_scans_limit) {
       return res.status(403).json({
-        error: `Monthly scan limit reached (${sub.monthly_scans_used}/${sub.monthly_scans_limit}). Please upgrade your plan in the Billing tab to trigger more scans.`,
+        error: `Monthly scan limit reached (${sub.monthly_scans_used}/${sub.monthly_scans_limit}). Enter a Beta Access Code on the Plans page to unlock 100 scans/month.`,
+        code: "SCAN_LIMIT_REACHED",
+      });
+    }
+
+    // Rate limit check
+    const rateLimitError = checkRateLimit(req.user.id, planTier);
+    if (rateLimitError) {
+      return res.status(429).json({ error: rateLimitError, code: "RATE_LIMITED" });
+    }
+
+    // Scan queue — prevent duplicate parallel scans
+    if (isAlreadyScanning(req.user.id, repoFullName)) {
+      return res.status(409).json({
+        error: `A scan of ${repoFullName} is already in progress. Please wait for it to complete.`,
+        code: "SCAN_IN_PROGRESS",
       });
     }
 
@@ -1951,8 +2127,11 @@ app.post("/api/repositories/scan", authMiddleware, async (req, res) => {
       message: `Scan started for ${repoFullName}. Results will appear on your dashboard shortly.`,
     });
 
-    scanRepository(repoFullName, req.user.id).catch((err) => {
+    markScanStarted(req.user.id);
+    markScanActive(req.user.id, repoFullName);
+    scanRepository(repoFullName, req.user.id, null, planTier).catch((err) => {
       console.error("❌ Manual scan error:", err.message);
+      markScanComplete(req.user.id, repoFullName);
     });
   } catch (err) {
     console.error("❌ Scan Error:", err);
@@ -1961,7 +2140,66 @@ app.post("/api/repositories/scan", authMiddleware, async (req, res) => {
 });
 
 // ============================
-// API: Cashfree Billing
+// API: Promo Code Redemption
+// ============================
+app.post("/api/promo/redeem", authMiddleware, async (req, res) => {
+  try {
+    const rawCode = req.body.code;
+    if (!rawCode || typeof rawCode !== "string") {
+      return res.status(400).json({ error: "Promo code is required" });
+    }
+
+    // Sanitize: uppercase, strip non-alphanumeric except hyphen
+    const code = rawCode.toUpperCase().replace(/[^A-Z0-9\-]/g, "").substring(0, 50);
+    if (!code) return res.status(400).json({ error: "Invalid promo code format" });
+
+    const { data, error } = await req.supabase.rpc("redeem_promo_code", { code_param: code });
+
+    if (error) {
+      console.error("❌ RPC redeem_promo_code failed:", error.message);
+      return res.status(500).json({ error: error.message });
+    }
+
+    if (!data || !data.success) {
+      const statusCode = data?.code === "ALREADY_REDEEMED" ? 409 : 400;
+      return res.status(statusCode).json({ error: data?.error || "Failed to redeem code" });
+    }
+
+    console.log(`🎟️ Promo code "${code}" redeemed by user ${req.user.id} → ${data.plan} plan`);
+    return res.json({
+      success: true,
+      plan: data.plan,
+      scansLimit: data.scansLimit,
+      expiresAt: data.expiresAt,
+      message: data.message,
+    });
+  } catch (err) {
+    console.error("/api/promo/redeem error:", err.message);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.get("/api/promo/status", authMiddleware, async (req, res) => {
+  try {
+    const { data: redemption, error } = await req.supabase
+      .from("promo_redemptions")
+      .select("code, plan_granted, redeemed_at, expires_at")
+      .eq("user_id", req.user.id)
+      .maybeSingle();
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    return res.json({
+      hasRedeemed: !!redemption,
+      redemption: redemption || null,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ============================
+// API: Cashfree Billing (DISABLED — payments coming soon)
 // ============================
 const {
   createCashfreeOrder,
@@ -1970,113 +2208,38 @@ const {
   getPlanDurationDays,
 } = require("./cashfreeService");
 
-app.post("/api/billing/checkout", authMiddleware, async (req, res) => {
-  try {
-    const { tier, billingPeriod } = req.body;
-    if (!tier || !["basic", "startup"].includes(tier)) {
-      return res.status(400).json({ error: "Invalid plan tier" });
-    }
-    const period = billingPeriod === "yearly" ? "yearly" : "monthly";
-
-    const order = await createCashfreeOrder(req.user.id, req.user.email, tier, period);
-
-    // Store the pending order reference in the subscription row
-    await supabase
-      .from("subscriptions")
-      .update({
-        cashfree_order_id: order.orderId,
-        payment_provider: "cashfree",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("user_id", req.user.id);
-
-    return res.json({ checkoutUrl: order.paymentLink });
-  } catch (err) {
-    console.error("/api/billing/checkout error:", err.message);
-    return res.status(500).json({ error: err.message || "Failed to create checkout" });
-  }
+// Checkout and verify are disabled until payment launch
+app.post("/api/billing/checkout", authMiddleware, async (_req, res) => {
+  return res.status(503).json({
+    error: "Payments are coming soon. Use a Beta Access Code on the Plans page to unlock premium features for free.",
+    code: "PAYMENTS_DISABLED",
+  });
 });
 
-app.post("/api/billing/verify", authMiddleware, async (req, res) => {
-  try {
-    const { orderId } = req.body;
-    if (!orderId || typeof orderId !== "string") {
-      return res.status(400).json({ error: "orderId is required" });
-    }
-
-    // Sanitize orderId: only allow alphanumeric, underscores, hyphens
-    const sanitizedOrderId = orderId.replace(/[^a-zA-Z0-9_\-]/g, "");
-    if (sanitizedOrderId !== orderId || sanitizedOrderId.length > 100) {
-      return res.status(400).json({ error: "Invalid orderId format" });
-    }
-
-    // SECURITY: Verify payment status directly with Cashfree API
-    const result = await verifyCashfreeOrder(sanitizedOrderId);
-
-    if (result.orderStatus === "PAID") {
-      const tier = result.tier || "basic";
-      const period = result.period || "monthly";
-      const durationDays = getPlanDurationDays(period);
-      const periodEnd = new Date();
-      periodEnd.setDate(periodEnd.getDate() + durationDays);
-
-      const { error: updateErr } = await supabase
-        .from("subscriptions")
-        .update({
-          plan_tier: tier,
-          status: "active",
-          current_period_end: periodEnd.toISOString(),
-          monthly_scans_used: 0,
-          monthly_scans_limit: getLimitFromTier(tier),
-          cashfree_order_id: sanitizedOrderId,
-          cashfree_payment_id: result.cfOrderId || null,
-          payment_provider: "cashfree",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("user_id", req.user.id);
-
-      if (updateErr) {
-        console.error("❌ Failed to update subscription:", updateErr.message);
-        return res.status(500).json({ error: "Failed to activate plan" });
-      }
-
-      console.log(`✅ Plan activated for user ${req.user.id}: ${tier} (${period})`);
-      return res.json({
-        success: true,
-        plan_tier: tier,
-        status: "active",
-        current_period_end: periodEnd.toISOString(),
-      });
-    } else {
-      console.log(`⚠️ Order ${sanitizedOrderId} status: ${result.orderStatus} (not PAID)`);
-      return res.json({
-        success: false,
-        orderStatus: result.orderStatus,
-        message: "Payment has not been completed yet",
-      });
-    }
-  } catch (err) {
-    console.error("/api/billing/verify error:", err.message);
-    return res.status(500).json({ error: err.message || "Payment verification failed" });
-  }
+app.post("/api/billing/verify", authMiddleware, async (_req, res) => {
+  return res.status(503).json({
+    error: "Payment verification is not yet enabled.",
+    code: "PAYMENTS_DISABLED",
+  });
 });
 
 app.get("/api/billing/status", authMiddleware, async (req, res) => {
   try {
-    const { data: sub, error: subErr } = await supabase
+    const { data: sub, error: subErr } = await req.supabase
       .from("subscriptions")
       .select("*")
       .eq("user_id", req.user.id)
-      .single();
+      .maybeSingle();
 
     if (subErr || !sub) {
-      // Auto-backfill a free tier row
-      const { data: newSub } = await supabase
-        .from("subscriptions")
-        .insert({ user_id: req.user.id, plan_tier: "free", monthly_scans_limit: 5 })
-        .select()
-        .single();
-      return res.json(newSub || { plan_tier: "free", monthly_scans_used: 0, monthly_scans_limit: 5 });
+      // Return fallback. (Subscriptions are auto-created on auth signup via DB trigger,
+      // and redeem_promo_code RPC handles upserts securely).
+      return res.json({ 
+        plan_tier: "free", 
+        monthly_scans_used: 0, 
+        monthly_scans_limit: 5,
+        status: "active" 
+      });
     }
 
     return res.json(sub);
@@ -2090,12 +2253,12 @@ app.get("/api/billing/status", authMiddleware, async (req, res) => {
 // Admin Middleware
 // ============================
 async function adminMiddleware(req, res, next) {
-  // Runs after authMiddleware — checks if user is an admin
-  const { data, error } = await supabase
+  // Runs after authMiddleware — checks if user is an admin using request client (auth context)
+  const { data, error } = await req.supabase
     .from("admin_users")
     .select("id")
     .eq("user_id", req.user.id)
-    .single();
+    .maybeSingle();
 
   if (error || !data) {
     return res.status(403).json({ error: "Admin access required" });
@@ -2127,11 +2290,11 @@ app.get("/api/admin/settings", async (_req, res) => {
 // ============================
 app.get("/api/admin/check", authMiddleware, async (req, res) => {
   try {
-    const { data } = await supabase
+    const { data } = await req.supabase
       .from("admin_users")
       .select("id, role")
       .eq("user_id", req.user.id)
-      .single();
+      .maybeSingle();
 
     return res.json({ isAdmin: !!data, role: data?.role || null });
   } catch (err) {
@@ -2218,30 +2381,70 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
       console.log("⚠️ Error counting user_repositories:", reposErr.message);
     }
 
-    // Code reviews (all fields for admin view)
+    // Fetch non-sensitive columns of reviews to maintain zero human code access
     const { data: allReviews, error: reviewsDataErr } = await req.supabase
       .from("code_reviews")
-      .select("*")
+      .select("id, user_id, severity, status, category, created_at")
       .order("created_at", { ascending: false });
     
     if (reviewsDataErr) {
       console.log("⚠️ Error fetching code_reviews data:", reviewsDataErr.message);
     }
 
-    // Map reviews to match the frontend expectations
-    const reviews = (allReviews || []).map((r) => ({
-      id: r.id,
-      user_id: r.user_id,
-      repo_name: r.repository_name || "Unknown",
-      file_path: r.file_name || "—",
-      issue_type: r.issue_title || "Scan Issue",
-      severity: r.severity || "Low",
-      status: r.status || "Open",
-      message: r.issue_description || "No description",
-      line_number: r.line_number || null,
-      suggestion: r.suggestion || null,
-      created_at: r.created_at,
-    }));
+    // Aggregate issues by category
+    const categoryStats = {};
+    (allReviews || []).forEach((r) => {
+      let cat = r.category || "General Security";
+      // Format category label nicely
+      cat = cat.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      
+      if (!categoryStats[cat]) {
+        categoryStats[cat] = {
+          category: cat,
+          total: 0,
+          critical: 0,
+          high: 0,
+          medium: 0,
+          low: 0,
+          open: 0,
+          resolved: 0,
+        };
+      }
+      
+      const stat = categoryStats[cat];
+      stat.total++;
+      
+      const sev = (r.severity || "").toLowerCase();
+      if (sev === "critical") stat.critical++;
+      else if (sev === "high") stat.high++;
+      else if (sev === "medium") stat.medium++;
+      else if (sev === "low") stat.low++;
+      
+      const status = (r.status || "").toLowerCase();
+      if (status === "open") stat.open++;
+      else if (status === "resolved") stat.resolved++;
+    });
+    
+    const categoryBreakdown = Object.values(categoryStats);
+    
+    // Fetch latest scan history for all repos to get scores/grades/risk levels
+    const { data: allScans, error: scansErr } = await req.supabase
+      .from("scan_history")
+      .select("repository_name, security_score, security_grade, critical_issues, high_issues, medium_issues, low_issues, scan_date")
+      .order("scan_date", { ascending: false });
+
+    if (scansErr) {
+      console.log("⚠️ Error fetching scan_history for dashboard:", scansErr.message);
+    }
+
+    const latestScanMap = {};
+    if (allScans) {
+      allScans.forEach((scan) => {
+        if (!latestScanMap[scan.repository_name]) {
+          latestScanMap[scan.repository_name] = scan;
+        }
+      });
+    }
     
     // All repositories for admin view (ordering by connected_at as created_at doesn't exist)
     const { data: allRepos, error: reposDataErr } = await req.supabase
@@ -2253,17 +2456,35 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
       console.log("⚠️ Error fetching user_repositories data:", reposDataErr.message);
     }
     
-    // Map repositories to match frontend expectations
+    // Map repositories to match frontend expectations with privacy masking
     const repositories = (allRepos || []).map((repo) => {
-      const parts = repo.repo_full_name ? repo.repo_full_name.split("/") : [];
+      const latestScan = latestScanMap[repo.repo_full_name] || {};
+      
+      // Calculate risk level from score
+      let riskLevel = "Critical";
+      const score = latestScan.security_score;
+      if (score !== undefined && score !== null) {
+        if (score >= 90) riskLevel = "Low";
+        else if (score >= 70) riskLevel = "Medium";
+        else if (score >= 50) riskLevel = "High";
+      } else {
+        riskLevel = "—";
+      }
+
       return {
         id: repo.id,
         user_id: repo.user_id,
-        repo_name: parts[1] || repo.repo_full_name || "Unknown",
-        github_owner: parts[0] || "Unknown",
+        repo_name: "Private Repository",
+        github_owner: "Private Owner",
         is_connected: true,
-        last_scan_at: null,
+        last_scan_at: latestScan.scan_date || null,
         created_at: repo.connected_at,
+        security_score: score ?? null,
+        security_grade: latestScan.security_grade ?? "—",
+        risk_level: riskLevel,
+        critical_issues: (latestScan.critical_issues || 0) + (latestScan.high_issues || 0), // Merge critical + high for display if needed
+        medium_issues: latestScan.medium_issues || 0,
+        low_issues: latestScan.low_issues || 0,
       };
     });
     
@@ -2319,11 +2540,11 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
     const logins7d = logins.filter((a) => new Date(a.created_at) >= last7d).length;
     const logins30d = logins.filter((a) => new Date(a.created_at) >= last30d).length;
 
-    const criticalIssues = reviews.filter((r) => r.severity?.toLowerCase() === "critical").length;
-    const mediumIssues = reviews.filter((r) => r.severity?.toLowerCase() === "medium").length;
-    const lowIssues = reviews.filter((r) => r.severity?.toLowerCase() === "low").length;
-    const openIssues = reviews.filter((r) => r.status?.toLowerCase() === "open").length;
-    const resolvedIssues = reviews.filter((r) => r.status?.toLowerCase() === "resolved").length;
+    const criticalIssues = (allReviews || []).filter((r) => r.severity?.toLowerCase() === "critical").length;
+    const mediumIssues = (allReviews || []).filter((r) => r.severity?.toLowerCase() === "medium").length;
+    const lowIssues = (allReviews || []).filter((r) => r.severity?.toLowerCase() === "low").length;
+    const openIssues = (allReviews || []).filter((r) => r.status?.toLowerCase() === "open").length;
+    const resolvedIssues = (allReviews || []).filter((r) => r.status?.toLowerCase() === "resolved").length;
 
     // Reviews last 7 days breakdown (for chart)
     const reviewsByDay = [];
@@ -2331,7 +2552,7 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
       const day = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
       const nextDay = new Date(day.getTime() + 24 * 60 * 60 * 1000);
       const dayLabel = day.toISOString().slice(0, 10);
-      const count = reviews.filter((r) => {
+      const count = (allReviews || []).filter((r) => {
         const d = new Date(r.created_at);
         return d >= day && d < nextDay;
       }).length;
@@ -2375,12 +2596,13 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
       const hasGithub = githubUserIds.has(u.id) || (repositories && repositories.some(r => r.user_id === u.id));
       const provider = hasGithub ? "github" : (u.app_metadata?.provider || "email");
       
-      // Heuristic for email confirmation: verified if confirmed in Supabase, connected to GitHub, or has payments/scans activity
-      const emailConfirmed = !!u.email_confirmed_at || hasGithub || !!sub.cashfree_order_id || !!sub.stripe_customer_id || (sub.monthly_scans_used > 0);
+      // Use real email confirmation status
+      const emailConfirmed = !!u.email_confirmed_at;
 
       return {
         id: u.id,
         email: u.email,
+        name: u.user_metadata?.full_name || u.user_metadata?.name || u.user_metadata?.username || (u.email ? u.email.split('@')[0] : "N/A"),
         createdAt: u.created_at,
         lastSignIn: u.last_sign_in_at,
         emailConfirmed: emailConfirmed,
@@ -2388,7 +2610,7 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
         planTier: sub.plan_tier || "free",
         billingStatus: sub.status || "active",
         scansUsed: sub.monthly_scans_used || 0,
-        scansLimit: sub.monthly_scans_limit || 5,
+        scansLimit: (sub.plan_tier || "free") === "free" ? 5 : (sub.monthly_scans_limit || 5),
         paymentProvider: sub.payment_provider || (sub.stripe_customer_id ? "stripe" : "none"),
         periodEnd: sub.current_period_end || null,
       };
@@ -2473,7 +2695,7 @@ app.get("/api/admin/dashboard", authMiddleware, adminMiddleware, async (req, res
       reviewsByDay,
       users,
       repositories,
-      issues: reviews,
+      categoryBreakdown,
       recentActivity: activities.slice(0, 50),
       settings: settings || {},
       billingSummary,
@@ -2549,7 +2771,151 @@ app.post("/api/activity/log", async (req, res) => {
 // ============================
 // Start Server
 // ============================
+
+// ============================
+// Admin: Promo Code Management
+// ============================
+app.get("/api/admin/promo-codes", authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { data, error } = await req.supabase
+      .from("promo_codes")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+  } catch (err) {
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post("/api/admin/promo-codes", authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { code, plan, maxUses, expiresAt, notes } = req.body;
+    if (!code || !plan) return res.status(400).json({ error: "code and plan are required" });
+
+    const cleanCode = String(code).toUpperCase().replace(/[^A-Z0-9\-]/g, "").substring(0, 50);
+    if (!cleanCode) return res.status(400).json({ error: "Invalid code format" });
+    if (!["basic", "beta", "admin"].includes(plan)) return res.status(400).json({ error: "Plan must be basic, beta, or admin" });
+    const parsedMax = parseInt(maxUses, 10) || 100;
+
+    const { data, error } = await req.supabase
+      .from("promo_codes")
+      .insert({
+        code: cleanCode,
+        plan,
+        max_uses: parsedMax,
+        expires_at: expiresAt || null,
+        notes: notes || null,
+        created_by: "admin",
+      })
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === "23505") return res.status(409).json({ error: "A code with this name already exists" });
+      return res.status(500).json({ error: error.message });
+    }
+    return res.json(data);
+  } catch (err) {
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.delete("/api/admin/promo-codes/:code", authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const code = String(req.params.code).toUpperCase().replace(/[^A-Z0-9\-]/g, "");
+    const { error } = await req.supabase.from("promo_codes").delete().eq("code", code);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.patch("/api/admin/promo-codes/:code/toggle", authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const code = String(req.params.code).toUpperCase().replace(/[^A-Z0-9\-]/g, "");
+    const isActive = req.body.isActive === true || req.body.isActive === "true";
+    const { error } = await req.supabase
+      .from("promo_codes")
+      .update({ is_active: isActive })
+      .eq("code", code);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.get("/api/admin/promo-redemptions", authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { data, error } = await req.supabase
+      .from("promo_redemptions")
+      .select("*")
+      .order("redeemed_at", { ascending: false })
+      .limit(500);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+  } catch (err) {
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ============================
+// Admin: AI Usage Monitoring
+// ============================
+app.get("/api/admin/ai-usage", authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    // Budget state
+    const { data: budget } = await req.supabase
+      .from("system_budget")
+      .select("*")
+      .eq("id", "global")
+      .single();
+
+    // Usage in the current month
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const { data: usageRows } = await req.supabase
+      .from("ai_usage_log")
+      .select("user_id, gemini_requests, tokens_estimated, estimated_cost_usd")
+      .gte("created_at", startOfMonth.toISOString());
+
+    const totalRequests = usageRows?.reduce((s, r) => s + (r.gemini_requests || 0), 0) || 0;
+    const totalTokens = usageRows?.reduce((s, r) => s + (r.tokens_estimated || 0), 0) || 0;
+
+    // Aggregate per user
+    const byUser = {};
+    for (const row of (usageRows || [])) {
+      if (!row.user_id) continue;
+      if (!byUser[row.user_id]) byUser[row.user_id] = { total_cost: 0, total_requests: 0 };
+      byUser[row.user_id].total_cost += (row.estimated_cost_usd || 0);
+      byUser[row.user_id].total_requests += (row.gemini_requests || 0);
+    }
+    const topUsers = Object.entries(byUser)
+      .map(([user_id, stats]) => ({ user_id, ...stats }))
+      .sort((a, b) => b.total_cost - a.total_cost)
+      .slice(0, 10);
+
+    return res.json({
+      monthlyCostUsd: budget?.monthly_cost_usd || 0,
+      dailyCostUsd: budget?.daily_cost_usd || 0,
+      budgetExceeded: budget?.budget_exceeded || false,
+      monthlyBudgetUsd: parseFloat(process.env.MONTHLY_AI_BUDGET_USD || "50"),
+      dailyBudgetUsd: parseFloat(process.env.DAILY_AI_BUDGET_USD || "5"),
+      totalRequests,
+      totalTokens,
+      topUsers,
+    });
+  } catch (err) {
+    console.error("/api/admin/ai-usage error:", err.message);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Backend running on port ${PORT}`);
-});
+});

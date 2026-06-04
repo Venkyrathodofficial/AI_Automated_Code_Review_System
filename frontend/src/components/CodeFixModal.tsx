@@ -6,6 +6,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -97,6 +98,9 @@ export function CodeFixModal({ open, onClose, fileName, originalCode, issueDescr
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>AI Code Fix for {fileName}</DialogTitle>
+          <DialogDescription className="sr-only">
+            Generate and apply AI secure code fixes directly to your GitHub repository.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div>
