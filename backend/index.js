@@ -674,7 +674,7 @@ function calculateSecurityScore(issues) {
     else if (sev === "low") lowCount++;
   });
 
-  const scoreDeductions = criticalCount * 15 + highCount * 10 + mediumCount * 5 + lowCount * 2;
+  const scoreDeductions = criticalCount * 15 + highCount * 8 + mediumCount * 4 + lowCount * 1;
   const score = Math.max(0, 100 - scoreDeductions);
   
   let grade = "F";
@@ -698,6 +698,22 @@ function calculateSecurityScore(issues) {
     mediumCount,
     lowCount
   };
+}
+
+function getSecurityGrade(score) {
+  if (score >= 95) return "A+";
+  if (score >= 90) return "A";
+  if (score >= 80) return "B";
+  if (score >= 70) return "C";
+  if (score >= 60) return "D";
+  return "F";
+}
+
+function getSecurityRiskLevel(score) {
+  if (score >= 90) return "Low Risk";
+  if (score >= 70) return "Medium Risk";
+  if (score >= 50) return "High Risk";
+  return "Critical Risk";
 }
 
 /** Scan an entire repo: fetch files and analyze each one */
@@ -727,7 +743,7 @@ async function scanRepository(repoFullName, userId, ref, planTier = "free") {
       repository_name: repoFullName,
       scan_date: new Date().toISOString(),
       security_score: 0,
-      security_grade: 'D',
+      security_grade: 'F',
       files_scanned: 0,
       commit_id: "scan-error",
       commit_message: "Scan failed"
@@ -1188,6 +1204,17 @@ app.get("/api/repositories", authMiddleware, async (req, res) => {
 
     const repoNames = userRepos.map((r) => r.repo_full_name);
 
+    const { data: scanHistory, error: scanErr } = await req.supabase
+      .from("scan_history")
+      .select("repository_name, security_score, security_grade, critical_issues, high_issues, medium_issues, low_issues, scan_date")
+      .eq("user_id", req.user.id)
+      .in("repository_name", repoNames)
+      .order("scan_date", { ascending: false });
+
+    if (scanErr) {
+      return res.status(500).json({ error: scanErr.message });
+    }
+
     const { data: reviews, error: revErr } = await req.supabase
       .from("code_reviews")
       .select("*")
@@ -1197,6 +1224,16 @@ app.get("/api/repositories", authMiddleware, async (req, res) => {
     if (revErr) {
       return res.status(500).json({ error: revErr.message });
     }
+
+    const latestScanMap = {};
+    const previousScanMap = {};
+    (scanHistory || []).forEach((scan) => {
+      if (!latestScanMap[scan.repository_name]) {
+        latestScanMap[scan.repository_name] = scan;
+      } else if (!previousScanMap[scan.repository_name]) {
+        previousScanMap[scan.repository_name] = scan;
+      }
+    });
 
     const repoMap = {};
     userRepos.forEach((ur) => {
@@ -1217,72 +1254,88 @@ app.get("/api/repositories", authMiddleware, async (req, res) => {
         files: new Set(),
         healthSignals: [],
         connectedAt: ur.connected_at,
-        webhookSecret: ur.webhook_secret,
       };
     });
 
-    (reviews || []).forEach((r) => {
-      const name = r.repository_name;
-      if (!repoMap[name]) return;
-      const repo = repoMap[name];
-      repo.totalReviews++;
-      const sev = (r.severity || "").toLowerCase();
-      if (sev === "critical") repo.critical++;
-      else if (sev === "high") repo.high++;
-      else if (sev === "medium") repo.medium++;
-      else repo.low++;
+    (reviews || []).forEach((review) => {
+      const repo = repoMap[review.repository_name];
+      if (!repo) return;
 
-      const st = (r.status || "").toLowerCase();
-      if (st === "resolved") {
-        repo.resolved++;
+      repo.totalReviews += 1;
+      const sev = String(review.severity || "").toLowerCase();
+      if (sev === "critical") repo.critical += 1;
+      else if (sev === "high") repo.high += 1;
+      else if (sev === "medium") repo.medium += 1;
+      else repo.low += 1;
+
+      const status = String(review.status || "").toLowerCase();
+      if (status === "resolved") {
+        repo.resolved += 1;
       } else {
-        repo.open++;
-        if (sev === "critical") repo.criticalOpen++;
-        else if (sev === "high") repo.highOpen++;
-        else if (sev === "medium") repo.mediumOpen++;
-        else repo.lowOpen++;
+        repo.open += 1;
+        if (sev === "critical") repo.criticalOpen += 1;
+        else if (sev === "high") repo.highOpen += 1;
+        else if (sev === "medium") repo.mediumOpen += 1;
+        else repo.lowOpen += 1;
       }
 
-      const score = Number(r.code_health_score);
+      const score = Number(review.code_health_score);
       if (Number.isFinite(score) && score >= 0 && score <= 100) {
-        repo.healthSignals.push({ score, createdAt: r.created_at || "" });
+        repo.healthSignals.push({ score, createdAt: review.created_at || "" });
       }
 
-      if (r.file_name) repo.files.add(r.file_name);
-      if (r.created_at && (!repo.lastReviewDate || r.created_at > repo.lastReviewDate)) {
-        repo.lastReviewDate = r.created_at;
+      if (review.file_name) repo.files.add(review.file_name);
+      if (review.created_at && (!repo.lastReviewDate || review.created_at > repo.lastReviewDate)) {
+        repo.lastReviewDate = review.created_at;
       }
     });
 
-    const repos = Object.values(repoMap).map((r) => {
-      let healthScore = 100;
+    const repos = Object.values(repoMap).map((repo) => {
+      const latestScan = latestScanMap[repo.name] || null;
+      const previousScan = previousScanMap[repo.name] || null;
 
-      if (r.healthSignals.length > 0) {
-        const recentSignals = r.healthSignals
+      let fallbackScore = null;
+      if (repo.healthSignals.length > 0) {
+        const recentSignals = [...repo.healthSignals]
           .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
           .slice(0, 30);
-        const avg = recentSignals.reduce((sum, s) => sum + s.score, 0) / recentSignals.length;
-        healthScore = Math.round(avg);
+        const avg = recentSignals.reduce((sum, signal) => sum + signal.score, 0) / recentSignals.length;
+        fallbackScore = Math.round(avg);
       } else {
-        const filesBase = Math.max(r.files.size || 0, 1);
-        const weightedOpenIssues = r.criticalOpen * 35 + r.highOpen * 20 + r.mediumOpen * 12 + r.lowOpen * 4;
-        const penalty = Math.round(weightedOpenIssues / filesBase);
-        healthScore = Math.max(0, Math.min(100, 100 - penalty));
+        const filesBase = Math.max(repo.files.size || 0, 1);
+        const weightedOpenIssues = repo.criticalOpen * 15 + repo.highOpen * 8 + repo.mediumOpen * 4 + repo.lowOpen * 1;
+        fallbackScore = Math.max(0, Math.min(100, 100 - Math.round(weightedOpenIssues / filesBase)));
       }
 
+      const securityScore = latestScan?.security_score ?? fallbackScore ?? 100;
+      const securityGrade = latestScan?.security_grade || getSecurityGrade(securityScore);
+      const riskLevel = getSecurityRiskLevel(securityScore);
+      const scoreImprovement = previousScan?.security_score !== undefined && previousScan?.security_score !== null
+        ? securityScore - previousScan.security_score
+        : null;
+
       return {
-        name: r.name,
-        totalReviews: r.totalReviews,
-        critical: r.critical,
-        high: r.high,
-        medium: r.medium,
-        low: r.low,
-        open: r.open,
-        resolved: r.resolved,
-        healthScore,
-        lastReviewDate: r.lastReviewDate,
-        filesReviewed: r.files.size,
-        connectedAt: r.connectedAt,
+        name: repo.name,
+        totalReviews: repo.totalReviews,
+        critical: repo.critical,
+        high: repo.high,
+        medium: repo.medium,
+        low: repo.low,
+        open: repo.open,
+        resolved: repo.resolved,
+        healthScore: securityScore,
+        security_score: securityScore,
+        security_grade: securityGrade,
+        risk_level: riskLevel,
+        criticalIssues: latestScan?.critical_issues ?? repo.critical,
+        highIssues: latestScan?.high_issues ?? repo.high,
+        mediumIssues: latestScan?.medium_issues ?? repo.medium,
+        lowIssues: latestScan?.low_issues ?? repo.low,
+        lastReviewDate: latestScan?.scan_date || repo.lastReviewDate,
+        previousSecurityScore: previousScan?.security_score ?? null,
+        scoreImprovement,
+        filesReviewed: repo.files.size,
+        connectedAt: repo.connectedAt,
       };
     });
 
@@ -1484,18 +1537,21 @@ app.get("/api/stats", authMiddleware, async (req, res) => {
 
     // Security Score calculation
     // Max penalty is 100.
-    // Each open critical: penalty 25
-    // Each open high: penalty 15
-    // Each open medium: penalty 8
-    // Each open low: penalty 2
+    // Each open critical: penalty 15
+    // Each open high: penalty 8
+    // Each open medium: penalty 4
+    // Each open low: penalty 1
     const openReviews = reviews.filter((r) => r.status?.toLowerCase() === "open");
     const openCrit = openReviews.filter((r) => r.severity?.toLowerCase() === "critical").length;
     const openHigh = openReviews.filter((r) => r.severity?.toLowerCase() === "high").length;
     const openMed = openReviews.filter((r) => r.severity?.toLowerCase() === "medium").length;
     const openLow = openReviews.filter((r) => r.severity?.toLowerCase() === "low").length;
 
-    const penalty = openCrit * 25 + openHigh * 15 + openMed * 8 + openLow * 2;
+    const penalty = openCrit * 15 + openHigh * 8 + openMed * 4 + openLow * 1;
     const securityScore = Math.max(0, 100 - penalty);
+    const securityGrade = getSecurityGrade(securityScore);
+    const riskLevel = getSecurityRiskLevel(securityScore);
+    const potentialSecurityGain = Math.min(100, penalty);
 
     return res.json({
       totalReviews: reviews.length,
@@ -1505,6 +1561,9 @@ app.get("/api/stats", authMiddleware, async (req, res) => {
       low,
       fixesAvailable,
       securityScore,
+      securityGrade,
+      riskLevel,
+      potentialSecurityGain,
       open: reviews.filter((r) => r.status?.toLowerCase() === "open").length,
       resolved: reviews.filter((r) => r.status?.toLowerCase() === "resolved").length,
     });
@@ -2918,4 +2977,4 @@ app.get("/api/admin/ai-usage", authMiddleware, adminMiddleware, async (req, res)
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Backend running on port ${PORT}`);
-});
+});

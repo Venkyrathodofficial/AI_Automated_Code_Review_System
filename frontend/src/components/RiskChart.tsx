@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
-import { useStats, useReviews } from "@/hooks/useReviews";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, LineChart, Line } from "recharts";
+import { useStats, useReviews, useScanHistory } from "@/hooks/useReviews";
 import { Loader2 } from "lucide-react";
 
 const PIE_COLORS = ["#dc2626", "#f97316", "#f59e0b", "#16a34a"];
@@ -123,29 +123,38 @@ function getMaxBuckets(range: TimeRange): number {
 }
 
 export function TrendChart() {
-  const [range, setRange] = useState<TimeRange>("daily");
-  const { data: issues, isLoading } = useReviews();
+  const { data: scanHistory, isLoading } = useScanHistory();
 
   const trendData = useMemo(() => {
-    if (!issues || issues.length === 0) return [];
-    const buckets = new Map<string, { label: string; sortKey: number; critical: number; high: number; medium: number; low: number }>();
-    for (const issue of issues) {
-      if (!issue.date) continue;
-      const label = getDateKey(issue.date, range);
-      const sortKey = getSortKey(issue.date, range);
-      if (!buckets.has(label)) buckets.set(label, { label, sortKey, critical: 0, high: 0, medium: 0, low: 0 });
-      const bucket = buckets.get(label)!;
-      const sev = issue.severity?.toLowerCase();
-      if (sev === "critical") bucket.critical++;
-      else if (sev === "high") bucket.high++;
-      else if (sev === "medium") bucket.medium++;
-      else bucket.low++;
+    if (!scanHistory || scanHistory.length === 0) return [];
+    const buckets = new Map<string, { label: string; sortKey: number; securityScore: number; count: number }>();
+    for (const scan of scanHistory) {
+      if (!scan.scan_date) continue;
+      const date = new Date(scan.scan_date);
+      if (Number.isNaN(date.getTime())) continue;
+      const label = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const sortKey = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+      const key = date.toISOString().slice(0, 10);
+      if (!buckets.has(key)) {
+        buckets.set(key, { label, sortKey, securityScore: 0, count: 0 });
+      }
+      const bucket = buckets.get(key)!;
+      bucket.securityScore += Number(scan.security_score || 0);
+      bucket.count += 1;
     }
-    const sorted = Array.from(buckets.values()).sort((a, b) => a.sortKey - b.sortKey);
-    return sorted.slice(-getMaxBuckets(range));
-  }, [issues, range]);
+    return Array.from(buckets.values())
+      .map((bucket) => ({
+        label: bucket.label,
+        sortKey: bucket.sortKey,
+        securityScore: Math.round(bucket.securityScore / Math.max(bucket.count, 1)),
+      }))
+      .sort((a, b) => a.sortKey - b.sortKey)
+      .slice(-8);
+  }, [scanHistory]);
 
-  const rangeLabel = range === "daily" ? "Daily" : range === "weekly" ? "Weekly" : "Monthly";
+  const latest = trendData.at(-1);
+  const previous = trendData.at(-2);
+  const improvement = latest && previous ? latest.securityScore - previous.securityScore : 0;
 
   return (
     <motion.div
@@ -156,24 +165,25 @@ export function TrendChart() {
     >
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h3 className="text-sm font-bold text-card-foreground">Issue Trends</h3>
-          <p className="mt-1 text-xs text-muted-foreground">{rangeLabel} issue count by severity</p>
+          <h3 className="text-sm font-bold text-card-foreground">Security Trends</h3>
+          <p className="mt-1 text-xs text-muted-foreground">Historical security score progression across recent scans</p>
         </div>
+      </div>
 
-        <div className="flex items-center rounded-xl bg-background border border-border p-1">
-          {(["daily", "weekly", "monthly"] as TimeRange[]).map((r) => (
-            <button
-              key={r}
-              onClick={() => setRange(r)}
-              className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ${
-                range === r
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-card-foreground"
-              }`}
-            >
-              {r === "daily" ? "Daily" : r === "weekly" ? "Weekly" : "Monthly"}
-            </button>
-          ))}
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="rounded-xl border border-border bg-secondary/30 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Current Score</p>
+          <p className="mt-1 text-xl font-extrabold text-card-foreground">{latest ? `${latest.securityScore}/100` : "—"}</p>
+        </div>
+        <div className="rounded-xl border border-border bg-secondary/30 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Previous Scan</p>
+          <p className="mt-1 text-xl font-extrabold text-card-foreground">{previous ? `${previous.securityScore}/100` : "—"}</p>
+        </div>
+        <div className="rounded-xl border border-border bg-secondary/30 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Improvement</p>
+          <p className={`mt-1 text-xl font-extrabold ${improvement >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+            {previous ? `${improvement >= 0 ? "+" : ""}${improvement}` : "—"}
+          </p>
         </div>
       </div>
 
@@ -184,11 +194,11 @@ export function TrendChart() {
           </div>
         ) : trendData.length === 0 ? (
           <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
-            No issue data yet — connect a repo and run a scan
+            No scan history yet — connect a repo and run a security scan
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={trendData} barGap={3}>
+            <LineChart data={trendData}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(140, 10%, 90%)" vertical={false} />
               <XAxis
                 dataKey="label"
@@ -196,11 +206,11 @@ export function TrendChart() {
                 axisLine={false}
                 tickLine={false}
                 interval={0}
-                angle={range === "daily" ? -35 : 0}
-                textAnchor={range === "daily" ? "end" : "middle"}
-                height={range === "daily" ? 40 : 28}
+                angle={-20}
+                textAnchor="end"
+                height={40}
               />
-              <YAxis tick={{ fontSize: 11, fill: "hsl(160, 8%, 46%)" }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
+              <YAxis tick={{ fontSize: 11, fill: "hsl(160, 8%, 46%)" }} axisLine={false} tickLine={false} width={28} allowDecimals={false} domain={[0, 100]} />
               <Tooltip
                 contentStyle={{
                   backgroundColor: "white",
@@ -211,11 +221,8 @@ export function TrendChart() {
                   boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
                 }}
               />
-              <Bar dataKey="critical" name="Critical" fill="#dc2626" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="high" name="High" fill="#f97316" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="medium" name="Medium" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="low" name="Low" fill="#16a34a" radius={[4, 4, 0, 0]} />
-            </BarChart>
+              <Line type="monotone" dataKey="securityScore" name="Security Score" stroke="#4f46e5" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: "#fff" }} activeDot={{ r: 6 }} />
+            </LineChart>
           </ResponsiveContainer>
         )}
       </div>

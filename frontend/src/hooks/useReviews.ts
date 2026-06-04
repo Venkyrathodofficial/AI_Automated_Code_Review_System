@@ -3,6 +3,7 @@ import {
   fetchReviews,
   fetchStats,
   fetchRepositories,
+  fetchScanHistory,
   updateReviewStatus,
   connectRepository,
   disconnectRepository,
@@ -85,6 +86,14 @@ export function useRepositories() {
     queryKey: ["repositories"],
     queryFn: fetchRepositories,
     refetchInterval: 15_000,
+  });
+}
+
+export function useScanHistory(repoFullName?: string) {
+  return useQuery({
+    queryKey: ["scan-history", repoFullName || "all"],
+    queryFn: () => fetchScanHistory(repoFullName),
+    refetchInterval: 30_000,
   });
 }
 

@@ -6,54 +6,45 @@ import { RiskChart, TrendChart } from "@/components/RiskChart";
 import { OnboardingTour } from "@/components/OnboardingTour";
 import { motion } from "framer-motion";
 import { GitCommit, Loader2, Activity, Sparkles, ArrowUpRight, ChevronRight, Shield } from "lucide-react";
-import { useReviews } from "@/hooks/useReviews";
+import { useReviews, useScanHistory } from "@/hooks/useReviews";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
 import { IssueDetailModal } from "@/components/IssueDetailModal";
 import { Issue } from "@/data/mockData";
+import {
+  buildRecommendedSecurityActions,
+  calculatePotentialSecurityGain,
+  summarizeSecurityState,
+} from "@/lib/security";
 
 const Index = () => {
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
   const { data: issues = [], isLoading } = useReviews();
+  const { data: scanHistory = [] } = useScanHistory();
   const recentActivity = issues.slice(0, 5);
+  const previousScan = scanHistory[1];
 
   // Action Center Calculations
   const openIssues = issues.filter(i => i.status === "open");
-
-  // Sort open issues by severity priority: critical, high, medium, low
-  const severityOrder = { critical: 4, high: 3, medium: 2, low: 1 };
-  const sortedRisks = [...openIssues].sort((a, b) => {
-    const aOrder = severityOrder[a.severity] || 0;
-    const bOrder = severityOrder[b.severity] || 0;
-    return bOrder - aOrder;
-  });
-
-  // Calculate current score based on open issues (same logic as backend)
-  const openCrit = openIssues.filter((i) => i.severity === "critical").length;
+  const openCritical = openIssues.filter((i) => i.severity === "critical").length;
   const openHigh = openIssues.filter((i) => i.severity === "high").length;
   const openMed = openIssues.filter((i) => i.severity === "medium").length;
   const openLow = openIssues.filter((i) => i.severity === "low").length;
-  const penalty = openCrit * 25 + openHigh * 15 + openMed * 8 + openLow * 2;
+
+  // Calculate current score based on open issues (same logic as backend)
+  const penalty = openCritical * 15 + openHigh * 8 + openMed * 4 + openLow * 1;
   const currentScore = Math.max(0, 100 - penalty);
-
-  const expectedImprovement = 100 - currentScore;
-
-  // Take top 3 priority risks for Action Center recommended fixes
-  const topFixes = sortedRisks.slice(0, 3).map((issue, idx) => {
-    let boost = 2;
-    if (issue.severity === "critical") boost = 25;
-    else if (issue.severity === "high") boost = 15;
-    else if (issue.severity === "medium") boost = 8;
-    return {
-      id: issue.id,
-      priority: idx + 1,
-      title: issue.title,
-      fileName: issue.fileName,
-      severity: issue.severity,
-      boost: `+${boost}% Score Boost`,
-      originalIssue: issue,
-    };
+  const potentialSecurityGain = calculatePotentialSecurityGain({ critical: openCritical, high: openHigh, medium: openMed, low: openLow });
+  const securitySummary = summarizeSecurityState({
+    currentScore,
+    previousScore: previousScan?.security_score,
+    criticalRisks: openCritical,
+    aiFixesAvailable: openIssues.filter((issue) => issue.suggestedFix && issue.suggestedFix.trim().length > 0).length,
+    potentialSecurityGain,
   });
+
+  // Take top priority risks for Action Center recommended fixes
+  const topFixes = buildRecommendedSecurityActions(issues, 3);
 
   return (
     <SidebarProvider>
@@ -63,6 +54,56 @@ const Index = () => {
           <TopNav title="Dashboard" subtitle="Overview of your code review pipeline" />
           <main className="flex-1 overflow-auto p-3 sm:p-6 bg-background space-y-5 sm:space-y-6">
             <OnboardingTour />
+
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35 }}
+              className="rounded-2xl border border-border bg-card p-5 sm:p-6 shadow-sm"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-card-foreground">Security Summary</h3>
+                  <p className="text-xs text-muted-foreground mt-1">How secure your repositories are right now, and how much they can improve.</p>
+                </div>
+                <div className="flex items-center gap-2 rounded-xl border border-primary/10 bg-primary/5 px-3 py-1.5 text-xs text-muted-foreground">
+                  <Shield className="h-3.5 w-3.5 text-primary" />
+                  <span>Zero Human Code Access</span>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
+                <div className="rounded-xl border border-border bg-secondary/20 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Current Security Score</p>
+                  <p className="mt-1 text-xl font-extrabold text-card-foreground">{securitySummary.currentScore}/100</p>
+                </div>
+                <div className="rounded-xl border border-border bg-secondary/20 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Security Grade</p>
+                  <p className="mt-1 text-xl font-extrabold text-card-foreground">{securitySummary.grade}</p>
+                </div>
+                <div className="rounded-xl border border-border bg-secondary/20 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Risk Level</p>
+                  <p className="mt-1 text-xl font-extrabold text-card-foreground">{securitySummary.riskLevel}</p>
+                </div>
+                <div className="rounded-xl border border-border bg-secondary/20 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Critical Risks</p>
+                  <p className="mt-1 text-xl font-extrabold text-card-foreground">{securitySummary.criticalRisks}</p>
+                </div>
+                <div className="rounded-xl border border-border bg-secondary/20 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">AI Fixes Available</p>
+                  <p className="mt-1 text-xl font-extrabold text-card-foreground">{securitySummary.aiFixesAvailable}</p>
+                </div>
+                <div className="rounded-xl border border-border bg-secondary/20 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Potential Gain</p>
+                  <p className="mt-1 text-xl font-extrabold text-emerald-600">+{securitySummary.potentialSecurityGain}</p>
+                  {typeof securitySummary.improvement === "number" && (
+                    <p className={`text-[10px] font-medium mt-0.5 ${securitySummary.improvement >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                      Previous scan {previousScan ? previousScan.security_score : "—"} · {securitySummary.improvement >= 0 ? "+" : ""}{securitySummary.improvement} change
+                    </p>
+                  )}
+                </div>
+              </div>
+            </motion.div>
             
             <StatsGrid />
 
@@ -79,16 +120,16 @@ const Index = () => {
                     <Sparkles className="h-4 w-4" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold text-card-foreground">Action Center</h3>
-                    <p className="text-xs text-muted-foreground">Automated prioritization and fixes for top security risks</p>
+                    <h3 className="text-sm font-bold text-card-foreground">Recommended Security Actions</h3>
+                    <p className="text-xs text-muted-foreground">Automated prioritization and fixes for the highest-impact risks</p>
                   </div>
                 </div>
 
-                {expectedImprovement > 0 ? (
+                {securitySummary.potentialSecurityGain > 0 ? (
                   <div className="flex items-center gap-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 px-3 py-1.5 text-xs text-emerald-700 dark:text-emerald-400 font-semibold animate-pulse">
                     <ArrowUpRight className="h-3.5 w-3.5" />
-                    <span>EXPECTED SCORE IMPROVEMENT</span>
-                    <span className="font-bold">+{expectedImprovement}% Boost</span>
+                    <span>POTENTIAL SECURITY GAIN</span>
+                    <span className="font-bold">+{securitySummary.potentialSecurityGain}</span>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 px-3 py-1.5 text-xs text-emerald-700 dark:text-emerald-400 font-semibold">
@@ -102,28 +143,29 @@ const Index = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {topFixes.map((fix) => (
                     <div 
-                      key={fix.id}
+                      key={fix.sourceIssue.id}
                       className="group flex flex-col justify-between p-4 rounded-xl border border-border/85 bg-secondary/15 hover:bg-secondary/35 dark:hover:bg-muted/30 hover:border-primary/20 transition-all duration-200"
                     >
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-bold tracking-wider text-muted-foreground uppercase">PRIORITY {fix.priority}</span>
+                          <span className="text-[9px] font-bold tracking-wider text-muted-foreground uppercase">PRIORITY {fix.rank}</span>
                           <span className={`text-[9px] font-bold uppercase rounded-md px-1.5 py-0.5 ${
-                            fix.severity === "critical" ? "bg-red-50 text-red-650 dark:bg-red-950/20 dark:text-red-400" :
-                            fix.severity === "high" ? "bg-orange-50 text-orange-655 dark:bg-orange-950/20 dark:text-orange-400" :
-                            "bg-amber-50 text-amber-655 dark:bg-amber-950/20 dark:text-amber-400"
+                            fix.priority === "Critical" ? "bg-red-50 text-red-700 dark:bg-red-950/20 dark:text-red-400" :
+                            fix.priority === "High" ? "bg-orange-50 text-orange-700 dark:bg-orange-950/20 dark:text-orange-400" :
+                            "bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400"
                           }`}>
-                            {fix.severity}
+                            {fix.priority}
                           </span>
                         </div>
                         <h4 className="text-xs font-bold text-card-foreground line-clamp-1 group-hover:text-primary transition-colors">{fix.title}</h4>
                         <p className="text-[10px] font-mono text-muted-foreground truncate">{fix.fileName}</p>
+                        <p className="text-[10px] text-muted-foreground">Impact: {fix.estimatedImpact}</p>
                       </div>
                       
                       <div className="flex items-center justify-between mt-4 pt-3 border-t border-border/40">
-                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">{fix.boost}</span>
+                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">Expected Gain: {fix.expectedScoreGain}</span>
                         <button 
-                          onClick={() => setSelectedIssue(fix.originalIssue)}
+                          onClick={() => setSelectedIssue(fix.sourceIssue)}
                           className="flex items-center gap-1 text-[10px] font-bold text-muted-foreground hover:text-primary transition-colors"
                         >
                           <span>Review Fix</span>
