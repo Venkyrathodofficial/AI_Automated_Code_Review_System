@@ -1294,21 +1294,23 @@ app.get("/api/repositories", authMiddleware, async (req, res) => {
       const latestScan = latestScanMap[repo.name] || null;
       const previousScan = previousScanMap[repo.name] || null;
 
-      let fallbackScore = null;
+      let liveScore = null;
       if (repo.healthSignals.length > 0) {
         const recentSignals = [...repo.healthSignals]
           .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
           .slice(0, 30);
         const avg = recentSignals.reduce((sum, signal) => sum + signal.score, 0) / recentSignals.length;
-        fallbackScore = Math.round(avg);
+        liveScore = Math.round(avg);
       } else {
         const filesBase = Math.max(repo.files.size || 0, 1);
         const weightedOpenIssues = repo.criticalOpen * 15 + repo.highOpen * 8 + repo.mediumOpen * 4 + repo.lowOpen * 1;
-        fallbackScore = Math.max(0, Math.min(100, 100 - Math.round(weightedOpenIssues / filesBase)));
+        liveScore = Math.max(0, Math.min(100, 100 - Math.round(weightedOpenIssues / filesBase)));
       }
 
-      const securityScore = latestScan?.security_score ?? fallbackScore ?? 100;
-      const securityGrade = latestScan?.security_grade || getSecurityGrade(securityScore);
+      const hasLiveFindings = repo.open > 0 || repo.critical > 0 || repo.high > 0 || repo.medium > 0 || repo.low > 0;
+      const historyScore = Number.isFinite(Number(latestScan?.security_score)) ? Number(latestScan.security_score) : null;
+      const securityScore = hasLiveFindings ? liveScore : (historyScore ?? liveScore ?? 100);
+      const securityGrade = getSecurityGrade(securityScore);
       const riskLevel = getSecurityRiskLevel(securityScore);
       const scoreImprovement = previousScan?.security_score !== undefined && previousScan?.security_score !== null
         ? securityScore - previousScan.security_score
@@ -1327,10 +1329,10 @@ app.get("/api/repositories", authMiddleware, async (req, res) => {
         security_score: securityScore,
         security_grade: securityGrade,
         risk_level: riskLevel,
-        criticalIssues: latestScan?.critical_issues ?? repo.critical,
-        highIssues: latestScan?.high_issues ?? repo.high,
-        mediumIssues: latestScan?.medium_issues ?? repo.medium,
-        lowIssues: latestScan?.low_issues ?? repo.low,
+        criticalIssues: repo.criticalOpen || repo.critical,
+        highIssues: repo.highOpen || repo.high,
+        mediumIssues: repo.mediumOpen || repo.medium,
+        lowIssues: repo.lowOpen || repo.low,
         lastReviewDate: latestScan?.scan_date || repo.lastReviewDate,
         previousSecurityScore: previousScan?.security_score ?? null,
         scoreImprovement,
