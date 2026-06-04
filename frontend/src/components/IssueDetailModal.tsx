@@ -7,10 +7,11 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Issue } from "@/data/mockData";
-import { GitCommit, Lightbulb, Wrench } from "lucide-react";
+import { GitCommit, Lightbulb, Wrench, ShieldAlert, Clock3 } from "lucide-react";
 import { FixCodeButton } from "./FixCodeButton";
 import { OriginalCodeFetcher } from "./OriginalCodeFetcher";
 import { useState } from "react";
+import { deriveVulnerabilityIntel } from "@/lib/vulnerability";
 
 interface Props {
   issue: Issue | null;
@@ -26,6 +27,7 @@ const severityColor: Record<string, string> = {
 export function IssueDetailModal({ issue, onClose }: Props) {
   const [originalCode, setOriginalCode] = useState("");
   const [showFixModal, setShowFixModal] = useState(false);
+  const intel = deriveVulnerabilityIntel(issue);
   if (!issue) return null;
 
   return (
@@ -49,17 +51,55 @@ export function IssueDetailModal({ issue, onClose }: Props) {
         </DialogHeader>
 
         <div className="space-y-4 mt-2 max-h-[80vh] overflow-y-auto pr-1">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl border border-border bg-secondary/30 p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Vulnerability Name</p>
+              <p className="mt-1 text-sm font-bold text-card-foreground">{intel.name}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-secondary/30 p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Category</p>
+              <p className="mt-1 text-sm font-bold text-card-foreground">{intel.category}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-secondary/30 p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Security Score Impact</p>
+              <p className="mt-1 text-sm font-bold text-rose-600">-{intel.securityScoreImpact}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-secondary/30 p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Remediation Difficulty</p>
+              <p className="mt-1 text-sm font-bold text-card-foreground">{intel.remediationDifficulty}</p>
+            </div>
+          </div>
+
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Description</p>
             <p className="text-sm text-card-foreground leading-relaxed">{issue.description}</p>
           </div>
 
-          {issue.category && (
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Category</p>
-              <Badge variant="outline" className="text-xs font-mono capitalize">
-                {issue.category.replace(/_/g, " ")}
-              </Badge>
+          <div className="rounded-xl border border-border bg-secondary/20 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <ShieldAlert className="h-4 w-4 text-primary" />
+              <p className="text-xs font-bold text-card-foreground">Potential Impact If Exploited</p>
+            </div>
+            <ul className="space-y-1.5">
+              {intel.attackImpact.map((impact) => (
+                <li key={impact} className="text-sm text-muted-foreground flex items-start gap-2">
+                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-primary" />
+                  <span>{impact}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {intel.secretTypes.length > 0 && (
+            <div className="rounded-xl border border-border bg-secondary/20 p-4">
+              <p className="text-xs font-bold text-card-foreground mb-2">Potential Secret Types Found</p>
+              <div className="flex flex-wrap gap-2">
+                {intel.secretTypes.map((secretType) => (
+                  <Badge key={secretType} variant="outline" className="text-[10px] font-mono">
+                    {secretType}
+                  </Badge>
+                ))}
+              </div>
             </div>
           )}
 
@@ -71,6 +111,23 @@ export function IssueDetailModal({ issue, onClose }: Props) {
               <p className="text-xs font-bold text-card-foreground mb-1">Suggested Fix</p>
               <p className="text-sm text-muted-foreground leading-relaxed">{issue.suggestedFix}</p>
             </div>
+          </div>
+
+          <div className="rounded-xl border border-border bg-secondary/20 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Clock3 className="h-4 w-4 text-primary" />
+              <p className="text-xs font-bold text-card-foreground">Step-by-Step Remediation</p>
+            </div>
+            <ol className="space-y-2">
+              {intel.remediationSteps.map((step, index) => (
+                <li key={step} className="flex items-start gap-2 text-sm text-muted-foreground">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary flex-shrink-0">
+                    {index + 1}
+                  </span>
+                  <span>{step}</span>
+                </li>
+              ))}
+            </ol>
           </div>
 
           {/* AI Verification Details */}
@@ -91,6 +148,14 @@ export function IssueDetailModal({ issue, onClose }: Props) {
                 <p className="font-semibold text-card-foreground mt-0.5">
                   {issue.confidenceScore ? `${(Number(issue.confidenceScore) * 100).toFixed(0)}%` : "92%"}
                 </p>
+              </div>
+              <div>
+                <p className="text-[9px] text-muted-foreground font-semibold uppercase">Expected Risk Reduction</p>
+                <p className="font-semibold text-card-foreground mt-0.5">-{intel.potentialSecurityGain}</p>
+              </div>
+              <div>
+                <p className="text-[9px] text-muted-foreground font-semibold uppercase">Estimated Fix Time</p>
+                <p className="font-semibold text-card-foreground mt-0.5">{intel.estimatedFixTime}</p>
               </div>
             </div>
           </div>

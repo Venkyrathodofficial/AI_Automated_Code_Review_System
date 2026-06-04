@@ -65,6 +65,7 @@ export interface Repository {
   connectedAt?: string;
   previousSecurityScore?: number | null;
   scoreImprovement?: number;
+  potentialSecurityGain?: number;
 }
 
 export interface ConnectRepoResult {

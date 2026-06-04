@@ -152,6 +152,7 @@ const Repositories = () => {
                   const securityScore = repo.security_score ?? repo.healthScore;
                   const securityGrade = repo.security_grade ?? "—";
                   const riskLevel = repo.risk_level ?? (securityScore >= 90 ? "Low Risk" : securityScore >= 70 ? "Medium Risk" : securityScore >= 50 ? "High Risk" : "Critical Risk");
+                  const potentialGain = repo.potentialSecurityGain ?? Math.max(0, 100 - securityScore);
                   const repoShort = repo.name.includes("/") ? repo.name.split("/").pop()! : repo.name;
                   const lastReview = repo.lastReviewDate
                     ? formatDistanceToNow(new Date(repo.lastReviewDate), { addSuffix: true })
@@ -278,6 +279,11 @@ const Repositories = () => {
                           </span>
                         </div>
                       )}
+
+                      <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Potential Security Gain</span>
+                        <span className="font-semibold text-emerald-600">+{potentialGain}</span>
+                      </div>
                     </motion.div>
                   );
                 })}

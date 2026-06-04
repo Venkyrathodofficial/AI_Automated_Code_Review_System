@@ -1262,13 +1262,13 @@ app.get("/api/repositories", authMiddleware, async (req, res) => {
       if (!repo) return;
 
       repo.totalReviews += 1;
-      const sev = String(review.severity || "").toLowerCase();
+      const sev = String(review.severity || "").trim().toLowerCase();
       if (sev === "critical") repo.critical += 1;
       else if (sev === "high") repo.high += 1;
       else if (sev === "medium") repo.medium += 1;
       else repo.low += 1;
 
-      const status = String(review.status || "").toLowerCase();
+      const status = String(review.status || "").trim().toLowerCase();
       if (status === "resolved") {
         repo.resolved += 1;
       } else {
@@ -1315,6 +1315,7 @@ app.get("/api/repositories", authMiddleware, async (req, res) => {
       const scoreImprovement = previousScan?.security_score !== undefined && previousScan?.security_score !== null
         ? securityScore - previousScan.security_score
         : null;
+      const potentialSecurityGain = Math.max(0, 100 - securityScore);
 
       return {
         name: repo.name,
@@ -1336,6 +1337,7 @@ app.get("/api/repositories", authMiddleware, async (req, res) => {
         lastReviewDate: latestScan?.scan_date || repo.lastReviewDate,
         previousSecurityScore: previousScan?.security_score ?? null,
         scoreImprovement,
+        potentialSecurityGain,
         filesReviewed: repo.files.size,
         connectedAt: repo.connectedAt,
       };
@@ -1461,6 +1463,16 @@ app.get("/api/file-content", authMiddleware, async (req, res) => {
     const { file, repo, ref } = req.query;
     if (!file || !repo) {
       return res.status(400).json({ error: "Missing file or repo parameters" });
+    }
+
+    const { data: adminAccess, error: adminErr } = await req.supabase
+      .from("admin_users")
+      .select("id")
+      .eq("user_id", req.user.id)
+      .maybeSingle();
+
+    if (!adminErr && adminAccess) {
+      return res.status(403).json({ error: "Admin accounts cannot access repository source code" });
     }
 
     // Get user's github token from profile
