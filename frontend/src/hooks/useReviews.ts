@@ -8,6 +8,8 @@ import {
   connectRepository,
   disconnectRepository,
   scanRepository,
+  purgeReviews,
+  submitFeedback,
   type ReviewRow,
 } from "@/lib/api";
 import type { Issue } from "@/data/mockData";
@@ -47,25 +49,38 @@ export function rowToIssue(r: ReviewRow): Issue {
     aiModel: r.ai_model,
     confidenceScore: r.confidence_score,
     validationStatus: r.validation_status,
+    engineVersion: r.engine_version,
   };
 }
 
 // ---------- hooks ----------
 
-export function useReviews() {
+export function useReviews(repoFullName?: string) {
   return useQuery({
-    queryKey: ["reviews"],
-    queryFn: fetchReviews,
+    queryKey: ["reviews", repoFullName || "all"],
+    queryFn: () => fetchReviews(repoFullName),
     select: (rows) => rows.map(rowToIssue),
     refetchInterval: 15_000,
   });
 }
 
-export function useStats() {
+export function useStats(repoFullName?: string) {
   return useQuery({
-    queryKey: ["stats"],
-    queryFn: fetchStats,
+    queryKey: ["stats", repoFullName || "all"],
+    queryFn: () => fetchStats(repoFullName),
     refetchInterval: 15_000,
+  });
+}
+
+export function usePurgeReviews() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (repoFullName?: string) => purgeReviews(repoFullName),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["reviews"] });
+      qc.invalidateQueries({ queryKey: ["stats"] });
+      qc.invalidateQueries({ queryKey: ["scan-history"] });
+    },
   });
 }
 
@@ -131,5 +146,12 @@ export function useScanRepo() {
         qc.invalidateQueries({ queryKey: ["stats"] });
       }, 5000);
     },
+  });
+}
+
+export function useSubmitFeedback() {
+  return useMutation({
+    mutationFn: ({ id, rating }: { id: string; rating: "up" | "down" }) =>
+      submitFeedback(id, rating),
   });
 }

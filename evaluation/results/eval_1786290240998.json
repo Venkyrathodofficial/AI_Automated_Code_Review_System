@@ -1,0 +1,54 @@
+{
+  "total": 3,
+  "passed": 2,
+  "failed": 1,
+  "falsePositives": 1,
+  "falseNegatives": 0,
+  "details": [
+    {
+      "id": "SQL-SAFE-001",
+      "file": "sql-safe.js",
+      "expectedDetection": false,
+      "actualDetection": true,
+      "findings": [
+        {
+          "title": "SQL Injection Risk via String Concatenation",
+          "severity": "Critical",
+          "aiVerified": false
+        }
+      ],
+      "success": false,
+      "errorType": "FALSE_POSITIVE"
+    },
+    {
+      "id": "API-KEY-001",
+      "file": "api-key.js",
+      "expectedDetection": true,
+      "actualDetection": true,
+      "findings": [
+        {
+          "title": "Hardcoded API Key or Secret Token",
+          "severity": "Critical",
+          "aiVerified": false
+        }
+      ],
+      "success": true,
+      "errorType": null
+    },
+    {
+      "id": "SQL-INJ-001",
+      "file": "sql-injection.js",
+      "expectedDetection": true,
+      "actualDetection": true,
+      "findings": [
+        {
+          "title": "SQL Injection Risk via String Concatenation",
+          "severity": "Critical",
+          "aiVerified": false
+        }
+      ],
+      "success": true,
+      "errorType": null
+    }
+  ]
+}

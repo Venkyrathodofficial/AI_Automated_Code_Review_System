@@ -18,6 +18,8 @@ export interface Issue {
   aiModel?: string;
   confidenceScore?: number;
   validationStatus?: string;
+  aiContext?: string;
+  engineVersion?: string;
 }
 
 export const mockIssues: Issue[] = [
@@ -34,6 +36,8 @@ export const mockIssues: Issue[] = [
     optimizationTip: "Consider implementing prepared statements for all database queries across the application.",
     commitMessage: "feat: add user login endpoint",
     commitId: "a3f7c2d",
+    validationStatus: "ai_verified",
+    aiContext: "Stage 1 (Verification): True positive. The query string interpolates user input directly.\nStage 2 (Context Reasoning): This endpoint handles all initial user authentication attempts.\nStage 3 (Impact & Severity): Critical. Attackers can bypass auth or extract user records.\nStage 4 (Remediation): Use parameterized queries as provided.",
   },
   {
     id: "2",

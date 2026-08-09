@@ -1,0 +1,140 @@
+{
+  "total": 10,
+  "passed": 8,
+  "failed": 2,
+  "falsePositives": 0,
+  "falseNegatives": 2,
+  "details": [
+    {
+      "id": "SQL-ADV-001",
+      "file": "sql-template-literal.js",
+      "expectedDetection": true,
+      "actualDetection": false,
+      "findings": [],
+      "success": false,
+      "errorType": "FALSE_NEGATIVE"
+    },
+    {
+      "id": "AUTH-001",
+      "file": "weak-hash.js",
+      "expectedDetection": true,
+      "actualDetection": true,
+      "findings": [
+        {
+          "title": "Weak Cryptographic Hashing Algorithm",
+          "severity": "High",
+          "aiVerified": true
+        }
+      ],
+      "success": true,
+      "errorType": null
+    },
+    {
+      "id": "SQL-SAFE-001",
+      "file": "sql-safe.js",
+      "expectedDetection": false,
+      "actualDetection": false,
+      "findings": [],
+      "success": true,
+      "errorType": null
+    },
+    {
+      "id": "XSS-SAFE-001",
+      "file": "xss-safe.js",
+      "expectedDetection": false,
+      "actualDetection": false,
+      "findings": [],
+      "success": true,
+      "errorType": null
+    },
+    {
+      "id": "CONF-001",
+      "file": "debug-mode.js",
+      "expectedDetection": true,
+      "actualDetection": true,
+      "findings": [
+        {
+          "title": "Debug Mode or Environment Flag Leak",
+          "severity": "High",
+          "aiVerified": true
+        }
+      ],
+      "success": true,
+      "errorType": null
+    },
+    {
+      "id": "DEP-001",
+      "file": "package-json.js",
+      "expectedDetection": true,
+      "actualDetection": false,
+      "findings": [],
+      "success": false,
+      "errorType": "FALSE_NEGATIVE"
+    },
+    {
+      "id": "EXEC-001",
+      "file": "command-injection.js",
+      "expectedDetection": true,
+      "actualDetection": true,
+      "findings": [
+        {
+          "title": "Command Injection via Process Spawn",
+          "severity": "Critical",
+          "aiVerified": true
+        },
+        {
+          "title": "Command Injection via Process Spawn",
+          "severity": "Critical",
+          "aiVerified": false
+        }
+      ],
+      "success": true,
+      "errorType": null
+    },
+    {
+      "id": "API-KEY-001",
+      "file": "api-key.js",
+      "expectedDetection": true,
+      "actualDetection": true,
+      "findings": [
+        {
+          "title": "Hardcoded API Key or Secret Token",
+          "severity": "Critical",
+          "aiVerified": false
+        }
+      ],
+      "success": true,
+      "errorType": null
+    },
+    {
+      "id": "SQL-INJ-001",
+      "file": "sql-injection.js",
+      "expectedDetection": true,
+      "actualDetection": true,
+      "findings": [
+        {
+          "title": "SQL Injection Risk via String Concatenation",
+          "severity": "Critical",
+          "aiVerified": false
+        }
+      ],
+      "success": true,
+      "errorType": null
+    },
+    {
+      "id": "XSS-001",
+      "file": "xss-innerhtml.js",
+      "expectedDetection": true,
+      "actualDetection": true,
+      "findings": [
+        {
+          "title": "Cross-Site Scripting (XSS) via innerHTML",
+          "severity": "High",
+          "aiVerified": false
+        }
+      ],
+      "success": true,
+      "errorType": null
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "total": 7,
+  "passed": 6,
+  "failed": 1,
+  "falsePositives": 0,
+  "falseNegatives": 1,
+  "details": [
+    {
+      "id": "SQL-ADV-001",
+      "file": "sql-template-literal.js",
+      "expectedDetection": true,
+      "actualDetection": false,
+      "findings": [],
+      "success": false,
+      "errorType": "FALSE_NEGATIVE"
+    },
+    {
+      "id": "AUTH-001",
+      "file": "weak-hash.js",
+      "expectedDetection": true,
+      "actualDetection": true,
+      "findings": [
+        {
+          "title": "Weak Cryptographic Hashing Algorithm",
+          "severity": "Critical",
+          "aiVerified": true
+        }
+      ],
+      "success": true,
+      "errorType": null
+    },
+    {
+      "id": "SQL-SAFE-001",
+      "file": "sql-safe.js",
+      "expectedDetection": false,
+      "actualDetection": false,
+      "findings": [],
+      "success": true,
+      "errorType": null
+    },
+    {
+      "id": "XSS-SAFE-001",
+      "file": "xss-safe.js",
+      "expectedDetection": false,
+      "actualDetection": false,
+      "findings": [],
+      "success": true,
+      "errorType": null
+    },
+    {
+      "id": "API-KEY-001",
+      "file": "api-key.js",
+      "expectedDetection": true,
+      "actualDetection": true,
+      "findings": [
+        {
+          "title": "Hardcoded API Key or Secret Token",
+          "severity": "Critical",
+          "aiVerified": true
+        }
+      ],
+      "success": true,
+      "errorType": null
+    },
+    {
+      "id": "SQL-INJ-001",
+      "file": "sql-injection.js",
+      "expectedDetection": true,
+      "actualDetection": true,
+      "findings": [
+        {
+          "title": "SQL Injection Risk via String Concatenation",
+          "severity": "Critical",
+          "aiVerified": false
+        }
+      ],
+      "success": true,
+      "errorType": null
+    },
+    {
+      "id": "XSS-001",
+      "file": "xss-innerhtml.js",
+      "expectedDetection": true,
+      "actualDetection": true,
+      "findings": [
+        {
+          "title": "Cross-Site Scripting (XSS) via innerHTML",
+          "severity": "High",
+          "aiVerified": false
+        }
+      ],
+      "success": true,
+      "errorType": null
+    }
+  ]
+}

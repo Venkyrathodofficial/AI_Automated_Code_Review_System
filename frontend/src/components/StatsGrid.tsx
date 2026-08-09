@@ -78,8 +78,12 @@ function StatCard({ title, value, icon: Icon, variant, subtitle, delay = 0 }: St
   );
 }
 
-export function StatsGrid() {
-  const { data, isLoading } = useStats();
+interface StatsGridProps {
+  selectedRepo?: string;
+}
+
+export function StatsGrid({ selectedRepo }: StatsGridProps) {
+  const { data, isLoading } = useStats(selectedRepo);
 
   const score = data?.securityScore ?? 100;
   const scoreVariant = score >= 90 ? "success" : score >= 70 ? "warning" : "critical";
