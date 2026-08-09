@@ -8,7 +8,8 @@ import {
   connectRepository,
   disconnectRepository,
   scanRepository,
-  submitFeedback,
+  purgeReviews,
+  submitReviewFeedback,
   type ReviewRow,
 } from "@/lib/api";
 import type { Issue } from "@/data/mockData";
@@ -151,6 +152,6 @@ export function useScanRepo() {
 export function useSubmitFeedback() {
   return useMutation({
     mutationFn: ({ id, rating }: { id: string; rating: "up" | "down" }) =>
-      submitFeedback(id, rating),
+      submitReviewFeedback(id, rating),
   });
 }
