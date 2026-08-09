@@ -7,11 +7,12 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Issue } from "@/data/mockData";
-import { GitCommit, Lightbulb, Wrench, ShieldAlert, Clock3 } from "lucide-react";
+import { GitCommit, Lightbulb, Wrench, ThumbsUp, ThumbsDown } from "lucide-react";
 import { FixCodeButton } from "./FixCodeButton";
 import { OriginalCodeFetcher } from "./OriginalCodeFetcher";
 import { useState } from "react";
-import { deriveVulnerabilityIntel } from "@/lib/vulnerability";
+import { useSubmitFeedback } from "@/hooks/useReviews";
+import { toast } from "sonner";
 
 interface Props {
   issue: Issue | null;
@@ -27,20 +28,47 @@ const severityColor: Record<string, string> = {
 export function IssueDetailModal({ issue, onClose }: Props) {
   const [originalCode, setOriginalCode] = useState("");
   const [showFixModal, setShowFixModal] = useState(false);
+  const [feedbackGiven, setFeedbackGiven] = useState<"up"|"down"|null>(null);
+  const feedbackMutation = useSubmitFeedback();
+
   if (!issue) return null;
-  const intel = deriveVulnerabilityIntel(issue);
+
+  const handleFeedback = (rating: "up"|"down") => {
+    feedbackMutation.mutate({ id: issue.id, rating });
+    setFeedbackGiven(rating);
+    toast.success("Thanks for your feedback!");
+  };
 
   return (
     <Dialog open={!!issue} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-lg bg-card border-border rounded-2xl">
         <DialogHeader>
-          <div className="flex items-center gap-2">
-            <Badge className={`text-[10px] font-semibold uppercase rounded-lg px-2 py-0.5 ${severityColor[issue.severity]}`}> 
-              {issue.severity}
-            </Badge>
-            <Badge className={`text-[10px] font-semibold capitalize rounded-lg px-2 py-0.5 ${issue.status === "open" ? "bg-red-50 text-red-600 border-0 dark:bg-red-900/20 dark:text-red-400" : "bg-emerald-50 text-emerald-600 border-0 dark:bg-emerald-900/20 dark:text-emerald-400"}`}>
-              {issue.status}
-            </Badge>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Badge className={`text-[10px] font-semibold uppercase rounded-lg px-2 py-0.5 ${severityColor[issue.severity]}`}> 
+                {issue.severity}
+              </Badge>
+              <Badge className={`text-[10px] font-semibold capitalize rounded-lg px-2 py-0.5 ${issue.status === "open" ? "bg-red-50 text-red-600 border-0 dark:bg-red-900/20 dark:text-red-400" : "bg-emerald-50 text-emerald-600 border-0 dark:bg-emerald-900/20 dark:text-emerald-400"}`}>
+                {issue.status}
+              </Badge>
+            </div>
+            {/* Telemetry Actions */}
+            <div className="flex items-center gap-1 bg-secondary/50 p-1 rounded-xl">
+              <button
+                onClick={() => handleFeedback("up")}
+                className={`p-1.5 rounded-lg transition-colors ${feedbackGiven === "up" ? "text-emerald-500 bg-emerald-100 dark:bg-emerald-900/40 shadow-sm" : "text-muted-foreground hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"}`}
+                title="Helpful (True Positive)"
+              >
+                <ThumbsUp className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => handleFeedback("down")}
+                className={`p-1.5 rounded-lg transition-colors ${feedbackGiven === "down" ? "text-red-500 bg-red-100 dark:bg-red-900/40 shadow-sm" : "text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"}`}
+                title="Unhelpful (False Positive)"
+              >
+                <ThumbsDown className="h-4 w-4" />
+              </button>
+            </div>
           </div>
           <DialogTitle className="text-base font-bold text-card-foreground mt-2">
             {issue.title}
@@ -51,55 +79,17 @@ export function IssueDetailModal({ issue, onClose }: Props) {
         </DialogHeader>
 
         <div className="space-y-4 mt-2 max-h-[80vh] overflow-y-auto pr-1">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-xl border border-border bg-secondary/30 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Vulnerability Name</p>
-              <p className="mt-1 text-sm font-bold text-card-foreground">{intel.name}</p>
-            </div>
-            <div className="rounded-xl border border-border bg-secondary/30 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Category</p>
-              <p className="mt-1 text-sm font-bold text-card-foreground">{intel.category}</p>
-            </div>
-            <div className="rounded-xl border border-border bg-secondary/30 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Security Score Impact</p>
-              <p className="mt-1 text-sm font-bold text-rose-600">-{intel.securityScoreImpact}</p>
-            </div>
-            <div className="rounded-xl border border-border bg-secondary/30 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Remediation Difficulty</p>
-              <p className="mt-1 text-sm font-bold text-card-foreground">{intel.remediationDifficulty}</p>
-            </div>
-          </div>
-
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Description</p>
             <p className="text-sm text-card-foreground leading-relaxed">{issue.description}</p>
           </div>
 
-          <div className="rounded-xl border border-border bg-secondary/20 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <ShieldAlert className="h-4 w-4 text-primary" />
-              <p className="text-xs font-bold text-card-foreground">Potential Impact If Exploited</p>
-            </div>
-            <ul className="space-y-1.5">
-              {intel.attackImpact.map((impact) => (
-                <li key={impact} className="text-sm text-muted-foreground flex items-start gap-2">
-                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-primary" />
-                  <span>{impact}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {intel.secretTypes.length > 0 && (
-            <div className="rounded-xl border border-border bg-secondary/20 p-4">
-              <p className="text-xs font-bold text-card-foreground mb-2">Potential Secret Types Found</p>
-              <div className="flex flex-wrap gap-2">
-                {intel.secretTypes.map((secretType) => (
-                  <Badge key={secretType} variant="outline" className="text-[10px] font-mono">
-                    {secretType}
-                  </Badge>
-                ))}
-              </div>
+          {issue.category && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Category</p>
+              <Badge variant="outline" className="text-xs font-mono capitalize">
+                {issue.category.replace(/_/g, " ")}
+              </Badge>
             </div>
           )}
 
@@ -111,23 +101,6 @@ export function IssueDetailModal({ issue, onClose }: Props) {
               <p className="text-xs font-bold text-card-foreground mb-1">Suggested Fix</p>
               <p className="text-sm text-muted-foreground leading-relaxed">{issue.suggestedFix}</p>
             </div>
-          </div>
-
-          <div className="rounded-xl border border-border bg-secondary/20 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Clock3 className="h-4 w-4 text-primary" />
-              <p className="text-xs font-bold text-card-foreground">Step-by-Step Remediation</p>
-            </div>
-            <ol className="space-y-2">
-              {intel.remediationSteps.map((step, index) => (
-                <li key={step} className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary flex-shrink-0">
-                    {index + 1}
-                  </span>
-                  <span>{step}</span>
-                </li>
-              ))}
-            </ol>
           </div>
 
           {/* AI Verification Details */}
@@ -149,15 +122,13 @@ export function IssueDetailModal({ issue, onClose }: Props) {
                   {issue.confidenceScore ? `${(Number(issue.confidenceScore) * 100).toFixed(0)}%` : "92%"}
                 </p>
               </div>
-              <div>
-                <p className="text-[9px] text-muted-foreground font-semibold uppercase">Expected Risk Reduction</p>
-                <p className="font-semibold text-card-foreground mt-0.5">-{intel.potentialSecurityGain}</p>
-              </div>
-              <div>
-                <p className="text-[9px] text-muted-foreground font-semibold uppercase">Estimated Fix Time</p>
-                <p className="font-semibold text-card-foreground mt-0.5">{intel.estimatedFixTime}</p>
-              </div>
             </div>
+            {issue.aiContext && (
+              <div className="mt-2 pt-2 border-t border-emerald-900/10 dark:border-emerald-800/20">
+                <p className="text-[9px] text-emerald-800/80 dark:text-emerald-400/80 font-semibold uppercase mb-1">AI Context & Reasoning</p>
+                <p className="text-xs text-emerald-950 dark:text-emerald-100/90 leading-relaxed whitespace-pre-wrap">{issue.aiContext}</p>
+              </div>
+            )}
           </div>
 
           {/* Code comparison block */}
