@@ -8,7 +8,6 @@ import {
   connectRepository,
   disconnectRepository,
   scanRepository,
-  purgeReviews,
   submitFeedback,
   type ReviewRow,
 } from "@/lib/api";
