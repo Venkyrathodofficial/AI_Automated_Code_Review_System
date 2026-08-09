@@ -48,6 +48,7 @@ export async function checkIsAdmin(): Promise<{ isAdmin: boolean; role: string |
 export interface AdminUser {
   id: string;
   email: string;
+  name?: string;
   createdAt: string;
   lastSignIn: string | null;
   emailConfirmed: boolean;
@@ -78,6 +79,23 @@ export interface AdminRepository {
   is_connected: boolean;
   last_scan_at: string | null;
   created_at: string;
+  security_score: number | null;
+  security_grade: string | null;
+  risk_level: string | null;
+  critical_issues: number;
+  medium_issues: number;
+  low_issues: number;
+}
+
+export interface AdminCategoryBreakdown {
+  category: string;
+  total: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  open: number;
+  resolved: number;
 }
 
 export interface AdminIssue {
@@ -112,7 +130,7 @@ export interface AdminDashboardData {
   reviewsByDay: { date: string; count: number }[];
   users: AdminUser[];
   repositories: AdminRepository[];
-  issues: AdminIssue[];
+  categoryBreakdown: AdminCategoryBreakdown[];
   recentActivity: ActivityEntry[];
   settings: AdminSettings;
   billingSummary?: {
@@ -159,4 +177,101 @@ export function logActivity(
   }).catch(() => {
     // silently fail — activity logging is non-critical
   });
+}
+
+// ---- Promo Code Management (admin only) ----
+
+export interface PromoCode {
+  id: string;
+  code: string;
+  plan: string;
+  max_uses: number;
+  used_count: number;
+  expires_at: string | null;
+  is_active: boolean;
+  created_by: string;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface PromoRedemption {
+  id: string;
+  user_id: string;
+  code: string;
+  plan_granted: string;
+  redeemed_at: string;
+  expires_at: string | null;
+}
+
+export async function fetchPromoCodes(): Promise<PromoCode[]> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${BASE}/admin/promo-codes`, { headers });
+  if (!res.ok) throw new Error("Failed to fetch promo codes");
+  return res.json();
+}
+
+export async function createPromoCode(data: {
+  code: string;
+  plan: string;
+  maxUses: number;
+  expiresAt: string;
+  notes: string;
+}): Promise<PromoCode> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${BASE}/admin/promo-codes`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || "Failed to create promo code");
+  }
+  return res.json();
+}
+
+export async function deletePromoCode(code: string): Promise<void> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${BASE}/admin/promo-codes/${encodeURIComponent(code)}`, {
+    method: "DELETE",
+    headers,
+  });
+  if (!res.ok) throw new Error("Failed to delete promo code");
+}
+
+export async function togglePromoCode(code: string, isActive: boolean): Promise<void> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${BASE}/admin/promo-codes/${encodeURIComponent(code)}/toggle`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ isActive }),
+  });
+  if (!res.ok) throw new Error("Failed to toggle promo code");
+}
+
+export async function fetchPromoRedemptions(): Promise<PromoRedemption[]> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${BASE}/admin/promo-redemptions`, { headers });
+  if (!res.ok) throw new Error("Failed to fetch redemptions");
+  return res.json();
+}
+
+// ---- AI Usage Monitoring ----
+
+export interface AiUsageSummary {
+  monthlyCostUsd: number;
+  dailyCostUsd: number;
+  totalRequests: number;
+  totalTokens: number;
+  budgetExceeded: boolean;
+  monthlyBudgetUsd: number;
+  dailyBudgetUsd: number;
+  topUsers: { user_id: string; email?: string; total_cost: number; total_requests: number }[];
+}
+
+export async function fetchAiUsage(): Promise<AiUsageSummary> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${BASE}/admin/ai-usage`, { headers });
+  if (!res.ok) throw new Error("Failed to fetch AI usage");
+  return res.json();
 }

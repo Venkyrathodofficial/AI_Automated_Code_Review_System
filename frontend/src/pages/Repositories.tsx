@@ -29,13 +29,13 @@ import { useRepositories, useConnectRepo, useDisconnectRepo, useScanRepo } from 
 import { formatDistanceToNow } from "date-fns";
 import type { ConnectRepoResult } from "@/lib/api";
 
-const getHealthColor = (score: number) => {
+const getSecurityColor = (score: number) => {
   if (score >= 80) return "text-emerald-600 dark:text-emerald-400";
   if (score >= 60) return "text-amber-600 dark:text-amber-400";
   return "text-red-600 dark:text-red-400";
 };
 
-const getHealthBg = (score: number) => {
+const getSecurityBg = (score: number) => {
   if (score >= 80) return "bg-success";
   if (score >= 60) return "bg-warning";
   return "bg-critical";
@@ -110,8 +110,9 @@ const Repositories = () => {
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
               <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Security Intelligence</p>
                 <p className="text-sm text-muted-foreground">
-                  {isLoading ? "Loading..." : `${repositories.length} repositor${repositories.length === 1 ? "y" : "ies"} connected`}
+                  {isLoading ? "Loading..." : `${repositories.length} repositor${repositories.length === 1 ? "y" : "ies"} tracked with security posture summaries`}
                 </p>
               </div>
               <Button size="sm" className="h-9 text-xs w-full sm:w-auto rounded-xl gap-1.5" onClick={() => setShowConnectModal(true)}>
@@ -147,8 +148,11 @@ const Repositories = () => {
               /* Repository Cards */
               <div className="grid grid-cols-1 gap-4">
                 {repositories.map((repo, i) => {
-                  const totalIssues = repo.critical + repo.medium + repo.low;
-                  const statusLabel = repo.open > 0 ? "active" : "clean";
+                  const totalIssues = (repo.criticalIssues ?? repo.critical) + (repo.highIssues ?? repo.high) + (repo.mediumIssues ?? repo.medium) + (repo.lowIssues ?? repo.low);
+                  const securityScore = repo.security_score ?? repo.healthScore;
+                  const securityGrade = repo.security_grade ?? "—";
+                  const riskLevel = repo.risk_level ?? (securityScore >= 90 ? "Low Risk" : securityScore >= 70 ? "Medium Risk" : securityScore >= 50 ? "High Risk" : "Critical Risk");
+                  const potentialGain = repo.potentialSecurityGain ?? Math.max(0, 100 - securityScore);
                   const repoShort = repo.name.includes("/") ? repo.name.split("/").pop()! : repo.name;
                   const lastReview = repo.lastReviewDate
                     ? formatDistanceToNow(new Date(repo.lastReviewDate), { addSuffix: true })
@@ -171,8 +175,8 @@ const Repositories = () => {
                             <div>
                               <div className="flex items-center gap-2">
                                 <h3 className="text-sm font-bold text-card-foreground">{repoShort}</h3>
-                                <Badge variant="outline" className={`text-[10px] h-5 capitalize rounded-lg ${statusLabel === "clean" ? "border-emerald-200 text-emerald-600 bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:bg-emerald-900/20" : "border-primary/30 text-primary bg-primary/5"}`}>
-                                  {statusLabel}
+                                <Badge variant="outline" className={`text-[10px] h-5 capitalize rounded-lg ${securityScore >= 90 ? "border-emerald-200 text-emerald-600 bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:bg-emerald-900/20" : securityScore >= 70 ? "border-amber-200 text-amber-600 bg-amber-50 dark:border-amber-800 dark:text-amber-400 dark:bg-amber-900/20" : "border-rose-200 text-rose-600 bg-rose-50 dark:border-rose-800 dark:text-rose-400 dark:bg-rose-900/20"}`}>
+                                  {securityGrade}
                                 </Badge>
                               </div>
                               <p className="text-xs text-muted-foreground mt-0.5 font-mono">{repo.name}</p>
@@ -192,30 +196,38 @@ const Repositories = () => {
                               <Clock className="h-3.5 w-3.5" />
                               Last reviewed {lastReview}
                             </span>
+                            <span className="flex items-center gap-1.5">
+                              <Webhook className="h-3.5 w-3.5" />
+                              {riskLevel}
+                            </span>
                           </div>
                         </div>
 
                         <div className="flex flex-wrap items-start gap-4 sm:gap-6 sm:ml-6">
                           {/* Health Score */}
                           <div className="text-center min-w-[80px]">
-                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Health</p>
-                            <p className={`text-xl font-extrabold ${getHealthColor(repo.healthScore)}`}>{repo.healthScore}%</p>
-                            <Progress value={repo.healthScore} className={`h-1.5 mt-1.5 rounded-full [&>div]:${getHealthBg(repo.healthScore)}`} />
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Security Score</p>
+                            <p className={`text-xl font-extrabold ${getSecurityColor(securityScore)}`}>{securityScore}/100</p>
+                            <Progress value={securityScore} className={`h-1.5 mt-1.5 rounded-full [&>div]:${getSecurityBg(securityScore)}`} />
                           </div>
 
                           {/* Issues breakdown */}
-                          <div className="flex items-center gap-2">
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                             <div className="text-center px-2.5 py-1 rounded-lg bg-red-50 dark:bg-red-900/10">
                               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Crit</p>
-                              <p className="text-sm font-bold text-red-600 dark:text-red-400">{repo.critical}</p>
+                              <p className="text-sm font-bold text-red-600 dark:text-red-400">{repo.criticalIssues ?? repo.critical}</p>
+                            </div>
+                            <div className="text-center px-2.5 py-1 rounded-lg bg-orange-50 dark:bg-orange-900/10">
+                              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">High</p>
+                              <p className="text-sm font-bold text-orange-600 dark:text-orange-400">{repo.highIssues ?? repo.high}</p>
                             </div>
                             <div className="text-center px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-900/10">
                               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Med</p>
-                              <p className="text-sm font-bold text-amber-600 dark:text-amber-400">{repo.medium}</p>
+                              <p className="text-sm font-bold text-amber-600 dark:text-amber-400">{repo.mediumIssues ?? repo.medium}</p>
                             </div>
                             <div className="text-center px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-900/10">
                               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Low</p>
-                              <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{repo.low}</p>
+                              <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{repo.lowIssues ?? repo.low}</p>
                             </div>
                           </div>
 
@@ -257,6 +269,20 @@ const Repositories = () => {
                             </Button>
                           </div>
                         </div>
+                      </div>
+
+                      {typeof repo.scoreImprovement === "number" && repo.previousSecurityScore !== null && (
+                        <div className="mt-4 rounded-xl border border-border bg-secondary/15 px-3 py-2 text-xs text-muted-foreground flex items-center justify-between gap-3">
+                          <span>Previous scan: {repo.previousSecurityScore}/100</span>
+                          <span className={`font-semibold ${repo.scoreImprovement >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                            {repo.scoreImprovement >= 0 ? "+" : ""}{repo.scoreImprovement} improvement
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Potential Security Gain</span>
+                        <span className="font-semibold text-emerald-600">+{potentialGain}</span>
                       </div>
                     </motion.div>
                   );

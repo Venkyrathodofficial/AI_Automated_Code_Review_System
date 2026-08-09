@@ -15,6 +15,9 @@ export interface Issue {
   category?: string;
   secureCode?: string;
   bestPractices?: string;
+  aiModel?: string;
+  confidenceScore?: number;
+  validationStatus?: string;
 }
 
 export const mockIssues: Issue[] = [

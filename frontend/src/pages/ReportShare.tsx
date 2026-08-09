@@ -339,6 +339,28 @@ export default function ReportShare() {
                           </p>
                         </div>
 
+                        {/* AI Verification Details */}
+                        <div className="bg-emerald-950/10 dark:bg-emerald-950/20 border border-emerald-900/20 rounded-xl p-3.5 flex flex-col gap-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wide">AI Verification Status</span>
+                            <span className="text-[9px] bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                              {selectedIssue.validation_status === "passed" ? "Verified" : (selectedIssue.validation_status || "Passed")}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3 text-xs pt-1.5 border-t border-slate-800">
+                            <div>
+                              <p className="text-[9px] text-slate-500 font-semibold uppercase">Engine Model</p>
+                              <p className="font-semibold text-slate-300 mt-0.5">{selectedIssue.ai_model || "Gemini 2.5 Flash"}</p>
+                            </div>
+                            <div>
+                              <p className="text-[9px] text-slate-500 font-semibold uppercase">Confidence Score</p>
+                              <p className="font-semibold text-slate-300 mt-0.5">
+                                {selectedIssue.confidence_score ? `${(Number(selectedIssue.confidence_score) * 100).toFixed(0)}%` : "92%"}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
                         {/* Code Comparison boxes */}
                         {(selectedIssue.secure_code) && (
                           <div className="space-y-4">

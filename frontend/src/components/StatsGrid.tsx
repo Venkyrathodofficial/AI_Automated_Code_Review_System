@@ -83,14 +83,17 @@ export function StatsGrid() {
 
   const score = data?.securityScore ?? 100;
   const scoreVariant = score >= 90 ? "success" : score >= 70 ? "warning" : "critical";
+  const grade = data?.securityGrade ?? "—";
+  const riskLevel = data?.riskLevel ?? "—";
+  const potentialGain = data?.potentialSecurityGain ?? 0;
 
   const stats: StatCardProps[] = [
-    { title: "Security Score", value: `${score}%`, icon: Shield, variant: scoreVariant, subtitle: "Overall repository health" },
-    { title: "Critical Issues", value: data?.critical ?? 0, icon: AlertOctagon, variant: "critical", subtitle: "Requires immediate fix" },
-    { title: "High Issues", value: data?.high ?? 0, icon: AlertTriangle, variant: "high", subtitle: "High risk vulnerabilities" },
-    { title: "Medium Issues", value: data?.medium ?? 0, icon: AlertCircle, variant: "warning", subtitle: "Quality & best practices" },
-    { title: "Low Issues", value: data?.low ?? 0, icon: Info, variant: "success", subtitle: "Minor code optimizations" },
-    { title: "AI Fixes Available", value: data?.fixesAvailable ?? 0, icon: Sparkles, variant: "violet", subtitle: "One-click commits ready" },
+    { title: "Security Score", value: `${score}/100`, icon: Shield, variant: scoreVariant, subtitle: "Overall security posture" },
+    { title: "Security Grade", value: grade, icon: Sparkles, variant: "violet", subtitle: "Mapped from score band" },
+    { title: "Risk Level", value: riskLevel, icon: AlertTriangle, variant: score >= 90 ? "success" : score >= 70 ? "warning" : "critical", subtitle: "What this repo feels like" },
+    { title: "Critical Risks", value: data?.critical ?? 0, icon: AlertOctagon, variant: "critical", subtitle: "Fix first to reduce exposure" },
+    { title: "AI Fixes Available", value: data?.fixesAvailable ?? 0, icon: Sparkles, variant: "violet", subtitle: "Gemini suggestions ready" },
+    { title: "Potential Gain", value: `+${potentialGain}`, icon: ArrowUpRight, variant: "success", subtitle: "Security score improvement" },
   ];
 
   if (isLoading) {

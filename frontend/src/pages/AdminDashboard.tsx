@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Users,
@@ -48,10 +48,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAdminDashboard, useUpdateAdminSettings } from "@/hooks/useAdmin";
 import { useAuth } from "@/hooks/useAuth";
-import { AdminRepository, AdminIssue, AdminUser, ActivityEntry } from "@/lib/adminApi";
+import { AdminRepository, AdminIssue, AdminUser, ActivityEntry, PromoCode, fetchPromoCodes, createPromoCode, deletePromoCode, togglePromoCode, fetchAiUsage, AiUsageSummary, AdminCategoryBreakdown } from "@/lib/adminApi";
 import { formatDistanceToNow, format } from "date-fns";
 
-type ActiveView = "dashboard" | "users" | "repositories" | "issues" | "activity" | "settings";
+type ActiveView = "dashboard" | "users" | "repositories" | "issues" | "activity" | "promo_codes" | "ai_usage" | "settings";
 
 /* ── Animation variants ── */
 const fadeIn = {
@@ -501,11 +501,12 @@ function UsersView({ users }: { users: AdminUser[] }) {
                 <td className="px-6 py-4">
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 bg-primary/10 rounded-full flex items-center justify-center">
-                      <span className="text-sm font-semibold text-primary">{u.email?.charAt(0).toUpperCase()}</span>
+                      <span className="text-sm font-semibold text-primary">{(u.name || u.email || "U").charAt(0).toUpperCase()}</span>
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-gray-900 dark:text-white">{u.email}</p>
-                      <p className="text-xs text-gray-500">{u.id.slice(0, 8)}...</p>
+                      <p className="text-sm font-bold text-gray-900 dark:text-white leading-tight">{u.name || "No Name"}</p>
+                      <p className="text-xs text-gray-500 leading-normal">{u.email}</p>
+                      <p className="text-[10px] text-gray-400 font-mono mt-0.5 leading-none">ID: {u.id.slice(0, 8)}...</p>
                     </div>
                   </div>
                 </td>
@@ -573,11 +574,12 @@ function UsersView({ users }: { users: AdminUser[] }) {
           <div className="space-y-6">
             <div className="flex items-center gap-4">
               <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
-                <span className="text-2xl font-bold text-primary">{selectedUser.email?.charAt(0).toUpperCase()}</span>
+                <span className="text-2xl font-bold text-primary">{(selectedUser.name || selectedUser.email || "U").charAt(0).toUpperCase()}</span>
               </div>
               <div>
-                <h4 className="text-lg font-semibold text-gray-900 dark:text-white">{selectedUser.email}</h4>
-                <p className="text-sm text-gray-500">ID: {selectedUser.id}</p>
+                <h4 className="text-lg font-bold text-gray-900 dark:text-white leading-tight">{selectedUser.name || "No Name"}</h4>
+                <p className="text-sm text-gray-500 leading-normal">{selectedUser.email}</p>
+                <p className="text-xs text-gray-400">ID: {selectedUser.id}</p>
               </div>
             </div>
             
@@ -669,8 +671,7 @@ function RepositoriesView({ repositories, users }: { repositories: AdminReposito
     if (!search) return repositories;
     const q = search.toLowerCase();
     return repositories.filter(r => 
-      r.repo_name?.toLowerCase().includes(q) || 
-      r.github_owner?.toLowerCase().includes(q)
+      r.id?.toLowerCase().includes(q)
     );
   }, [repositories, search]);
 
@@ -679,13 +680,13 @@ function RepositoriesView({ repositories, users }: { repositories: AdminReposito
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">Repositories</h2>
-          <p className="text-sm text-gray-500">{repositories.length} connected repositories</p>
+          <p className="text-sm text-gray-500">{repositories.length} connected repositories (Names masked for privacy)</p>
         </div>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
             type="text"
-            placeholder="Search repos..."
+            placeholder="Search by Repository ID..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-10 pr-4 py-2 w-64 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
@@ -699,25 +700,63 @@ function RepositoriesView({ repositories, users }: { repositories: AdminReposito
             key={repo.id}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 hover:shadow-md transition-shadow cursor-pointer"
+            className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 hover:shadow-md transition-shadow cursor-pointer flex flex-col justify-between"
             onClick={() => setSelectedRepo(repo)}
           >
-            <div className="flex items-start justify-between mb-4">
-              <div className="w-10 h-10 bg-violet-50 dark:bg-violet-900/20 rounded-xl flex items-center justify-center">
-                <GitFork className="h-5 w-5 text-violet-600 dark:text-violet-400" />
+            <div>
+              <div className="flex items-start justify-between mb-4">
+                <div className="w-10 h-10 bg-violet-50 dark:bg-violet-900/20 rounded-xl flex items-center justify-center">
+                  <GitFork className="h-5 w-5 text-violet-600 dark:text-violet-400" />
+                </div>
+                <span className={`px-2 py-1 rounded-lg text-xs font-medium ${
+                  repo.is_connected 
+                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400" 
+                    : "bg-gray-100 text-gray-600 dark:bg-gray-800"
+                }`}>
+                  {repo.is_connected ? "Connected" : "Disconnected"}
+                </span>
               </div>
-              <span className={`px-2 py-1 rounded-lg text-xs font-medium ${
-                repo.is_connected 
-                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400" 
-                  : "bg-gray-100 text-gray-600 dark:bg-gray-800"
-              }`}>
-                {repo.is_connected ? "Connected" : "Disconnected"}
-              </span>
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-1">Private Repository</h4>
+              <p className="text-[10px] font-mono text-gray-400 dark:text-gray-500 mb-3 truncate">ID: {repo.id}</p>
+
+              {/* Security Indicators */}
+              <div className="flex flex-wrap items-center gap-1.5 mb-4">
+                <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${
+                  repo.security_grade === "A+" || repo.security_grade === "A" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20" :
+                  repo.security_grade === "B" || repo.security_grade === "C" ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20" :
+                  "bg-red-50 text-red-700 dark:bg-red-900/20"
+                }`}>
+                  Grade {repo.security_grade || "—"}
+                </span>
+                <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${
+                  repo.risk_level === "Low" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20" :
+                  repo.risk_level === "Medium" ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20" :
+                  "bg-red-50 text-red-700 dark:bg-red-900/20"
+                }`}>
+                  {repo.risk_level || "—"} Risk
+                </span>
+                <span className="text-[10px] text-gray-400 font-medium">Score: {repo.security_score !== null ? `${repo.security_score}%` : "—"}</span>
+              </div>
+
+              {/* Issue counts */}
+              <div className="grid grid-cols-3 gap-1.5 p-2 bg-gray-50 dark:bg-gray-800/40 rounded-xl mb-4 text-center text-[10px] text-gray-500">
+                <div>
+                  <p className="font-bold text-red-500 text-xs">{repo.critical_issues}</p>
+                  <span>Crit/High</span>
+                </div>
+                <div>
+                  <p className="font-bold text-amber-500 text-xs">{repo.medium_issues}</p>
+                  <span>Medium</span>
+                </div>
+                <div>
+                  <p className="font-bold text-emerald-500 text-xs">{repo.low_issues}</p>
+                  <span>Low</span>
+                </div>
+              </div>
             </div>
-            <h4 className="font-semibold text-gray-900 dark:text-white mb-1">{repo.repo_name}</h4>
-            <p className="text-sm text-gray-500 mb-3">{repo.github_owner}</p>
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              <Mail className="h-3 w-3" />
+
+            <div className="flex items-center gap-2 text-xs text-gray-500 border-t border-gray-100 dark:border-gray-800/80 pt-3 mt-1">
+              <Mail className="h-3.5 w-3.5" />
               <span className="truncate">{getUserEmail(repo.user_id)}</span>
             </div>
           </motion.div>
@@ -735,36 +774,54 @@ function RepositoriesView({ repositories, users }: { repositories: AdminReposito
                 <GitFork className="h-7 w-7 text-violet-600" />
               </div>
               <div>
-                <h4 className="text-lg font-semibold text-gray-900 dark:text-white">{selectedRepo.repo_name}</h4>
-                <p className="text-sm text-gray-500">{selectedRepo.github_owner}</p>
+                <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Private Repository</h4>
+                <p className="text-xs font-mono text-gray-500 truncate">ID: {selectedRepo.id}</p>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                <p className="text-xs text-gray-500 mb-1">Owner</p>
-                <p className="font-medium">{getUserEmail(selectedRepo.user_id)}</p>
+                <p className="text-xs text-gray-500 mb-1">Owner Email</p>
+                <p className="font-medium text-sm truncate">{getUserEmail(selectedRepo.user_id)}</p>
               </div>
               <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                <p className="text-xs text-gray-500 mb-1">Status</p>
-                <p className="font-medium">{selectedRepo.is_connected ? "Connected" : "Disconnected"}</p>
+                <p className="text-xs text-gray-500 mb-1">Scan Status</p>
+                <p className="font-medium text-sm">{selectedRepo.is_connected ? "Scan Pipeline Active" : "Disconnected"}</p>
+              </div>
+              <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                <p className="text-xs text-gray-500 mb-1">Security Score & Grade</p>
+                <p className="font-medium text-sm">{selectedRepo.security_score !== null ? `${selectedRepo.security_score}% (Grade ${selectedRepo.security_grade})` : "No scans performed yet"}</p>
+              </div>
+              <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                <p className="text-xs text-gray-500 mb-1">Risk Level</p>
+                <p className="font-medium text-sm">{selectedRepo.risk_level || "—"}</p>
               </div>
               <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
                 <p className="text-xs text-gray-500 mb-1">Connected On</p>
-                <p className="font-medium">{selectedRepo.created_at ? format(new Date(selectedRepo.created_at), 'PPpp') : "Unknown"}</p>
+                <p className="font-medium text-sm">{selectedRepo.created_at ? format(new Date(selectedRepo.created_at), 'PP') : "Unknown"}</p>
               </div>
               <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                <p className="text-xs text-gray-500 mb-1">Last Scan</p>
-                <p className="font-medium">{selectedRepo.last_scan_at ? format(new Date(selectedRepo.last_scan_at), 'PPpp') : "Never"}</p>
+                <p className="text-xs text-gray-500 mb-1">Last Scan Date</p>
+                <p className="font-medium text-sm">{selectedRepo.last_scan_at ? format(new Date(selectedRepo.last_scan_at), 'PP') : "Never"}</p>
               </div>
             </div>
-            <a
-              href={`https://github.com/${selectedRepo.github_owner}/${selectedRepo.repo_name}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 w-full py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl font-medium hover:opacity-90 transition-opacity"
-            >
-              <ExternalLink className="h-4 w-4" /> Open on GitHub
-            </a>
+            
+            <div className="border-t border-gray-100 dark:border-gray-800 pt-6">
+              <h5 className="text-sm font-bold text-gray-900 dark:text-white mb-3">Issue Summary Stats</h5>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="p-3 bg-red-50 dark:bg-red-950/10 border border-red-100 dark:border-red-900/20 rounded-xl text-center">
+                  <p className="text-2xl font-black text-red-600">{selectedRepo.critical_issues}</p>
+                  <p className="text-[10px] text-gray-500 uppercase font-semibold">Critical/High</p>
+                </div>
+                <div className="p-3 bg-amber-50 dark:bg-amber-950/10 border border-amber-100 dark:border-amber-900/20 rounded-xl text-center">
+                  <p className="text-2xl font-black text-amber-600">{selectedRepo.medium_issues}</p>
+                  <p className="text-[10px] text-gray-500 uppercase font-semibold">Medium</p>
+                </div>
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/10 border border-emerald-100 dark:border-emerald-900/20 rounded-xl text-center">
+                  <p className="text-2xl font-black text-emerald-600">{selectedRepo.low_issues}</p>
+                  <p className="text-[10px] text-gray-500 uppercase font-semibold">Low</p>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </DetailModal>
@@ -773,81 +830,35 @@ function RepositoriesView({ repositories, users }: { repositories: AdminReposito
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   ███ ISSUES VIEW
+   ███ ISSUES VIEW (Aggregated Vulnerability Category View)
    ══════════════════════════════════════════════════════════════════════════════ */
-function IssuesView({ issues, users }: { issues: AdminIssue[]; users: AdminUser[] }) {
+function IssuesView({ categoryBreakdown }: { categoryBreakdown: AdminCategoryBreakdown[] }) {
   const [search, setSearch] = useState("");
-  const [severityFilter, setSeverityFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [selectedIssue, setSelectedIssue] = useState<AdminIssue | null>(null);
 
-  const getUserEmail = (userId: string) => users.find(u => u.id === userId)?.email || "Unknown";
-
-  const filteredIssues = useMemo(() => {
-    let result = issues;
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter(i => 
-        i.message?.toLowerCase().includes(q) || 
-        i.repo_name?.toLowerCase().includes(q) ||
-        i.file_path?.toLowerCase().includes(q)
-      );
-    }
-    if (severityFilter !== "all") {
-      result = result.filter(i => i.severity?.toLowerCase() === severityFilter);
-    }
-    if (statusFilter !== "all") {
-      result = result.filter(i => i.status?.toLowerCase() === statusFilter);
-    }
-    return result;
-  }, [issues, search, severityFilter, statusFilter]);
-
-  const severityColors: Record<string, string> = {
-    critical: "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400",
-    high: "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400",
-    medium: "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400",
-    low: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400",
-  };
+  const filteredCategories = useMemo(() => {
+    if (!search) return categoryBreakdown;
+    const q = search.toLowerCase();
+    return categoryBreakdown.filter(c => c.category?.toLowerCase().includes(q));
+  }, [categoryBreakdown, search]);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">Issues</h2>
-          <p className="text-sm text-gray-500">{issues.length} total issues found</p>
+          <p className="text-sm text-gray-500">{categoryBreakdown.length} vulnerability categories identified</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input
               type="text"
-              placeholder="Search issues..."
+              placeholder="Search categories..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-10 pr-4 py-2 w-48 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
             />
           </div>
-          <select
-            value={severityFilter}
-            onChange={(e) => setSeverityFilter(e.target.value)}
-            className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
-          >
-            <option value="all">All Severity</option>
-            <option value="critical">Critical</option>
-            <option value="high">High</option>
-            <option value="medium">Medium</option>
-            <option value="low">Low</option>
-          </select>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
-          >
-            <option value="all">All Status</option>
-            <option value="open">Open</option>
-            <option value="resolved">Resolved</option>
-            <option value="ignored">Ignored</option>
-          </select>
         </div>
       </div>
 
@@ -856,128 +867,49 @@ function IssuesView({ issues, users }: { issues: AdminIssue[]; users: AdminUser[
           <table className="w-full">
             <thead>
               <tr className="bg-gray-50 dark:bg-gray-800/50">
-                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Issue</th>
-                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Repository</th>
-                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Severity</th>
-                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Status</th>
-                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
-                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
+                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Vulnerability Category</th>
+                <th className="text-center px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Total Findings</th>
+                <th className="text-center px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Open</th>
+                <th className="text-center px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Resolved</th>
+                <th className="text-center px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Critical/High</th>
+                <th className="text-center px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Medium</th>
+                <th className="text-center px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Low</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-              {filteredIssues.slice(0, 100).map((issue) => (
-                <tr key={issue.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30">
-                  <td className="px-6 py-4">
-                    <div className="max-w-xs">
-                      <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{issue.message || issue.issue_type}</p>
-                      <p className="text-xs text-gray-500 truncate">{issue.file_path}:{issue.line_number || 0}</p>
-                    </div>
+              {filteredCategories.map((c) => (
+                <tr key={c.category} className="hover:bg-gray-50 dark:hover:bg-gray-800/30">
+                  <td className="px-6 py-4 text-sm font-semibold text-gray-900 dark:text-white">
+                    {c.category}
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{issue.repo_name}</td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2.5 py-1 rounded-lg text-xs font-medium capitalize ${severityColors[issue.severity?.toLowerCase()] || "bg-gray-100"}`}>
-                      {issue.severity}
+                  <td className="px-6 py-4 text-sm text-center font-bold text-gray-600 dark:text-gray-400">
+                    {c.total}
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <span className="px-2 py-0.5 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 rounded-lg text-xs font-semibold">
+                      {c.open}
                     </span>
                   </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2.5 py-1 rounded-lg text-xs font-medium capitalize ${
-                      issue.status?.toLowerCase() === "resolved" 
-                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20" 
-                        : issue.status?.toLowerCase() === "open"
-                        ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20"
-                        : "bg-gray-100 text-gray-600"
-                    }`}>
-                      {issue.status}
+                  <td className="px-6 py-4 text-center">
+                    <span className="px-2 py-0.5 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 rounded-lg text-xs font-semibold">
+                      {c.resolved}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {issue.created_at ? formatDistanceToNow(new Date(issue.created_at), { addSuffix: true }) : "—"}
+                  <td className="px-6 py-4 text-center text-sm font-bold text-red-600">
+                    {c.critical + c.high}
                   </td>
-                  <td className="px-6 py-4">
-                    <button onClick={() => setSelectedIssue(issue)} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
-                      <Eye className="h-4 w-4 text-gray-500" />
-                    </button>
+                  <td className="px-6 py-4 text-center text-sm font-bold text-amber-600">
+                    {c.medium}
+                  </td>
+                  <td className="px-6 py-4 text-center text-sm font-bold text-emerald-600">
+                    {c.low}
                   </td>
                 </tr>
               ))}
-              {filteredIssues.length === 0 && (
-                <tr><td colSpan={6} className="px-6 py-12 text-center text-gray-500">No issues found</td></tr>
-              )}
             </tbody>
           </table>
         </div>
-        {filteredIssues.length > 100 && (
-          <div className="px-6 py-3 bg-gray-50 dark:bg-gray-800/50 text-sm text-gray-500 text-center">
-            Showing 100 of {filteredIssues.length} issues
-          </div>
-        )}
       </div>
-
-      <DetailModal title="Issue Details" isOpen={!!selectedIssue} onClose={() => setSelectedIssue(null)}>
-        {selectedIssue && (
-          <div className="space-y-6">
-            <div className="flex items-start gap-4">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                selectedIssue.severity?.toLowerCase() === "critical" || selectedIssue.severity?.toLowerCase() === "high"
-                  ? "bg-red-50 dark:bg-red-900/20" 
-                  : selectedIssue.severity?.toLowerCase() === "medium"
-                  ? "bg-amber-50 dark:bg-amber-900/20"
-                  : "bg-emerald-50 dark:bg-emerald-900/20"
-              }`}>
-                <AlertTriangle className={`h-6 w-6 ${
-                  selectedIssue.severity?.toLowerCase() === "critical" || selectedIssue.severity?.toLowerCase() === "high"
-                    ? "text-red-600" 
-                    : selectedIssue.severity?.toLowerCase() === "medium"
-                    ? "text-amber-600"
-                    : "text-emerald-600"
-                }`} />
-              </div>
-              <div className="flex-1">
-                <h4 className="text-lg font-semibold text-gray-900 dark:text-white">{selectedIssue.issue_type}</h4>
-                <p className="text-sm text-gray-500">{selectedIssue.repo_name}</p>
-              </div>
-            </div>
-
-            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
-              <p className="text-sm text-gray-700 dark:text-gray-300">{selectedIssue.message}</p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                <p className="text-xs text-gray-500 mb-1">File</p>
-                <p className="font-medium text-sm truncate">{selectedIssue.file_path}</p>
-              </div>
-              <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                <p className="text-xs text-gray-500 mb-1">Line</p>
-                <p className="font-medium">{selectedIssue.line_number || "N/A"}</p>
-              </div>
-              <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                <p className="text-xs text-gray-500 mb-1">Severity</p>
-                <p className="font-medium capitalize">{selectedIssue.severity}</p>
-              </div>
-              <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                <p className="text-xs text-gray-500 mb-1">Status</p>
-                <p className="font-medium capitalize">{selectedIssue.status}</p>
-              </div>
-              <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                <p className="text-xs text-gray-500 mb-1">Detected</p>
-                <p className="font-medium">{selectedIssue.created_at ? format(new Date(selectedIssue.created_at), 'PPpp') : "Unknown"}</p>
-              </div>
-              <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                <p className="text-xs text-gray-500 mb-1">User</p>
-                <p className="font-medium truncate">{getUserEmail(selectedIssue.user_id)}</p>
-              </div>
-            </div>
-
-            {selectedIssue.suggestion && (
-              <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800">
-                <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 mb-2">Suggestion</p>
-                <p className="text-sm text-blue-800 dark:text-blue-300">{selectedIssue.suggestion}</p>
-              </div>
-            )}
-          </div>
-        )}
-      </DetailModal>
     </div>
   );
 }
@@ -1333,8 +1265,239 @@ function SettingsView({
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   ███ MAIN ADMIN DASHBOARD COMPONENT
+   ███ PROMO CODES VIEW
    ══════════════════════════════════════════════════════════════════════════════ */
+function PromoCodesView() {
+  const [codes, setCodes] = useState<PromoCode[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newCode, setNewCode] = useState("");
+  const [newPlan, setNewPlan] = useState("basic");
+  const [newMaxUses, setNewMaxUses] = useState("100");
+  const [newExpiry, setNewExpiry] = useState("2026-12-31");
+  const [newNotes, setNewNotes] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [toast, setToastMsg] = useState("");
+
+  const reload = async () => {
+    try {
+      setLoading(true);
+      const data = await fetchPromoCodes();
+      setCodes(data);
+    } catch {}
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { reload(); }, []);
+
+  const handleCreate = async () => {
+    if (!newCode.trim()) return;
+    try {
+      setCreating(true);
+      await createPromoCode({ code: newCode, plan: newPlan, maxUses: parseInt(newMaxUses), expiresAt: newExpiry, notes: newNotes });
+      setNewCode(""); setNewNotes("");
+      setToastMsg("Code created!");
+      await reload();
+    } catch (e: any) { setToastMsg(e.message); }
+    finally { setCreating(false); setTimeout(() => setToastMsg(""), 3000); }
+  };
+
+  const handleDelete = async (code: string) => {
+    if (!confirm(`Delete code "${code}"?`)) return;
+    try { await deletePromoCode(code); await reload(); } catch {}
+  };
+
+  const handleToggle = async (code: string, current: boolean) => {
+    try { await togglePromoCode(code, !current); await reload(); } catch {}
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Promo Codes</h2>
+          <p className="text-sm text-gray-500">{codes.length} total codes</p>
+        </div>
+      </div>
+
+      {toast && (
+        <div className="px-4 py-3 rounded-xl bg-emerald-50 text-emerald-700 text-sm border border-emerald-200">{toast}</div>
+      )}
+
+      {/* Create Form */}
+      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-6">
+        <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Create New Code</h3>
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+          <div>
+            <Label className="text-xs">Code (auto-uppercase)</Label>
+            <Input value={newCode} onChange={e => setNewCode(e.target.value.toUpperCase())} placeholder="MYCODE2026" className="mt-1 rounded-xl font-mono" />
+          </div>
+          <div>
+            <Label className="text-xs">Plan</Label>
+            <select value={newPlan} onChange={e => setNewPlan(e.target.value)} className="mt-1 w-full h-10 px-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-background text-sm">
+              <option value="basic">basic</option>
+              <option value="beta">Pro</option>
+              <option value="admin">custom</option>
+            </select>
+          </div>
+          <div>
+            <Label className="text-xs">Max Uses</Label>
+            <Input type="number" value={newMaxUses} onChange={e => setNewMaxUses(e.target.value)} className="mt-1 rounded-xl" />
+          </div>
+          <div>
+            <Label className="text-xs">Expires At</Label>
+            <Input type="date" value={newExpiry} onChange={e => setNewExpiry(e.target.value)} className="mt-1 rounded-xl" />
+          </div>
+          <div className="col-span-2 lg:col-span-2">
+            <Label className="text-xs">Notes</Label>
+            <Input value={newNotes} onChange={e => setNewNotes(e.target.value)} placeholder="e.g. Prompt Wars 2026" className="mt-1 rounded-xl" />
+          </div>
+        </div>
+        <Button onClick={handleCreate} disabled={creating || !newCode.trim()} className="mt-4 rounded-xl">
+          {creating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Key className="h-4 w-4 mr-2" />}
+          Create Code
+        </Button>
+      </div>
+
+      {/* Codes Table */}
+      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+        {loading ? (
+          <div className="p-12 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 dark:bg-gray-800/50">
+                <tr>
+                  {["Code", "Plan", "Used/Max", "Expires", "Status", "Notes", "Actions"].map(h => (
+                    <th key={h} className="text-left px-5 py-4 text-xs font-semibold text-gray-500 uppercase">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {codes.map(c => (
+                  <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30">
+                    <td className="px-5 py-4 font-mono text-sm font-bold text-primary">{c.code}</td>
+                    <td className="px-5 py-4">
+                      <span className={`text-xs px-2 py-1 rounded-full font-semibold transition-all ${
+                        c.plan === "admin" ? "bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border border-purple-200 dark:border-purple-800" :
+                        c.plan === "beta" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800" :
+                        "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-800"
+                      }`}>
+                        {c.plan === "admin" ? "custom" : c.plan === "beta" ? "Pro" : "basic"}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 text-sm text-gray-600 dark:text-gray-400">{c.used_count} / {c.max_uses}</td>
+                    <td className="px-5 py-4 text-xs text-gray-500">{c.expires_at ? new Date(c.expires_at).toLocaleDateString() : "—"}</td>
+                    <td className="px-5 py-4">
+                      <button onClick={() => handleToggle(c.code, c.is_active)} className={`text-xs px-2 py-1 rounded-full font-semibold transition-colors ${ c.is_active ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200" : "bg-gray-100 text-gray-500 hover:bg-gray-200" }`}>
+                        {c.is_active ? "Active" : "Disabled"}
+                      </button>
+                    </td>
+                    <td className="px-5 py-4 text-xs text-gray-500 max-w-[160px] truncate">{c.notes || "—"}</td>
+                    <td className="px-5 py-4">
+                      <button onClick={() => handleDelete(c.code)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 hover:text-red-700 transition-colors">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {codes.length === 0 && <tr><td colSpan={7} className="px-6 py-12 text-center text-gray-500">No promo codes yet.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   ███ AI USAGE VIEW
+   ══════════════════════════════════════════════════════════════════════════════ */
+function AiUsageView() {
+  const [usage, setUsage] = useState<AiUsageSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchAiUsage().then(setUsage).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="flex justify-center p-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
+  if (!usage) return <div className="p-12 text-center text-gray-500">Failed to load AI usage data.</div>;
+
+  const monthPct = usage.monthlyBudgetUsd > 0 ? Math.min(100, (usage.monthlyCostUsd / usage.monthlyBudgetUsd) * 100) : 0;
+  const dayPct = usage.dailyBudgetUsd > 0 ? Math.min(100, (usage.dailyCostUsd / usage.dailyBudgetUsd) * 100) : 0;
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white">AI Usage & Budget</h2>
+        <p className="text-sm text-gray-500">Gemini 2.5 Flash cost monitoring — current calendar month</p>
+      </div>
+
+      {usage.budgetExceeded && (
+        <div className="flex items-center gap-3 p-4 rounded-2xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+          <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
+          <p className="text-sm text-red-700 dark:text-red-400 font-semibold">⚠️ AI budget limit exceeded — new scans are blocked until next reset.</p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <StatCard title="Monthly Cost" value={`$${usage.monthlyCostUsd.toFixed(4)}`} icon={TrendingUp} color="emerald" />
+        <StatCard title="Daily Cost" value={`$${usage.dailyCostUsd.toFixed(4)}`} icon={Activity} color="blue" />
+        <StatCard title="Total Requests" value={usage.totalRequests} icon={FileSearch} color="violet" />
+        <StatCard title="Tokens Estimated" value={usage.totalTokens.toLocaleString()} icon={BarChart3} color="amber" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-6 space-y-4">
+          <h3 className="font-semibold text-gray-900 dark:text-white">Monthly Budget</h3>
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-500">Used: ${usage.monthlyCostUsd.toFixed(4)}</span>
+              <span className="font-semibold">/ ${usage.monthlyBudgetUsd}</span>
+            </div>
+            <div className="h-3 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full transition-all ${ monthPct >= 100 ? "bg-red-500" : monthPct >= 80 ? "bg-amber-500" : "bg-emerald-500" }`} style={{ width: `${monthPct}%` }} />
+            </div>
+          </div>
+          <h3 className="font-semibold text-gray-900 dark:text-white pt-2">Daily Budget</h3>
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-500">Used: ${usage.dailyCostUsd.toFixed(4)}</span>
+              <span className="font-semibold">/ ${usage.dailyBudgetUsd}</span>
+            </div>
+            <div className="h-3 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full transition-all ${ dayPct >= 100 ? "bg-red-500" : dayPct >= 80 ? "bg-amber-500" : "bg-emerald-500" }`} style={{ width: `${dayPct}%` }} />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-6">
+          <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Top Users by Cost</h3>
+          {usage.topUsers.length === 0 ? (
+            <p className="text-sm text-gray-500">No usage recorded this month.</p>
+          ) : (
+            <div className="space-y-3">
+              {usage.topUsers.map((u, i) => (
+                <div key={u.user_id} className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-bold text-gray-400 w-5">#{i + 1}</span>
+                    <p className="text-sm font-mono text-gray-700 dark:text-gray-300 truncate max-w-[180px]">{u.user_id.substring(0, 16)}...</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-gray-900 dark:text-white">${u.total_cost.toFixed(5)}</p>
+                    <p className="text-xs text-gray-500">{u.total_requests} req</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const AdminDashboard = () => {
   const { data, isLoading, error } = useAdminDashboard();
   const updateSettings = useUpdateAdminSettings();
@@ -1373,7 +1536,7 @@ const AdminDashboard = () => {
 
   if (!data) return null;
 
-  const { totalUsers, totalRepos, openIssues, users, repositories = [], issues = [], recentActivity, settings } = data;
+  const { totalUsers, totalRepos, openIssues, users, repositories = [], categoryBreakdown = [], recentActivity, settings } = data;
 
   const viewTitles: Record<ActiveView, string> = {
     dashboard: "Dashboard",
@@ -1381,6 +1544,8 @@ const AdminDashboard = () => {
     repositories: "Repositories",
     issues: "Issues",
     activity: "Activity",
+    promo_codes: "Promo Codes",
+    ai_usage: "AI Usage & Budget",
     settings: "Settings",
   };
 
@@ -1406,6 +1571,11 @@ const AdminDashboard = () => {
           <NavItem icon={GitFork} label="Repositories" badge={totalRepos} active={activeView === "repositories"} onClick={() => setActiveView("repositories")} />
           <NavItem icon={AlertTriangle} label="Issues" badge={openIssues} active={activeView === "issues"} onClick={() => setActiveView("issues")} />
           <NavItem icon={Activity} label="Activity" active={activeView === "activity"} onClick={() => setActiveView("activity")} />
+          <div className="border-t border-gray-100 dark:border-gray-800 my-2 pt-2">
+            <p className="text-[10px] uppercase font-bold text-gray-400 px-4 mb-1">Beta</p>
+            <NavItem icon={Key} label="Promo Codes" active={activeView === "promo_codes"} onClick={() => setActiveView("promo_codes")} />
+            <NavItem icon={TrendingUp} label="AI Usage" active={activeView === "ai_usage"} onClick={() => setActiveView("ai_usage")} />
+          </div>
           <NavItem icon={Settings} label="Settings" active={activeView === "settings"} onClick={() => setActiveView("settings")} />
         </nav>
       </aside>
@@ -1440,8 +1610,10 @@ const AdminDashboard = () => {
               {activeView === "dashboard" && <DashboardView data={data} onNavigate={setActiveView} />}
               {activeView === "users" && <UsersView users={users} />}
               {activeView === "repositories" && <RepositoriesView repositories={repositories} users={users} />}
-              {activeView === "issues" && <IssuesView issues={issues} users={users} />}
+              {activeView === "issues" && <IssuesView categoryBreakdown={categoryBreakdown} />}
               {activeView === "activity" && <ActivityView activities={recentActivity} />}
+              {activeView === "promo_codes" && <PromoCodesView />}
+              {activeView === "ai_usage" && <AiUsageView />}
               {activeView === "settings" && <SettingsView settings={settings} updateSettings={updateSettings} />}
             </motion.div>
           </AnimatePresence>

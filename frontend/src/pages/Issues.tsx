@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { TopNav } from "@/components/TopNav";
@@ -24,6 +24,7 @@ import {
 import { Issue } from "@/data/mockData";
 import { IssueDetailModal } from "@/components/IssueDetailModal";
 import { useReviews, useToggleStatus } from "@/hooks/useReviews";
+import { splitIssuesByCategory } from "@/lib/security";
 
 const severityVariant: Record<string, string> = {
   critical: "bg-red-100 text-red-700 border-0 dark:bg-red-900/30 dark:text-red-400",
@@ -41,14 +42,31 @@ const Issues = () => {
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
   const { data: issues = [], isLoading } = useReviews();
   const toggleMutation = useToggleStatus();
+  const [categoryFilter, setCategoryFilter] = useState<"security" | "quality">("security");
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const itemsPerPage = 10;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [categoryFilter, severityFilter, statusFilter]);
+
+  const categorizedIssues = splitIssuesByCategory(issues);
 
   const filteredIssues = issues.filter((issue) => {
+    const isSecurity = categorizedIssues.security.some((item) => item.id === issue.id);
+    if (categoryFilter === "security" && !isSecurity) return false;
+    if (categoryFilter === "quality" && isSecurity) return false;
     if (severityFilter !== "all" && issue.severity !== severityFilter) return false;
     if (statusFilter !== "all" && issue.status !== statusFilter) return false;
     return true;
   });
+
+  const totalPages = Math.ceil(filteredIssues.length / itemsPerPage);
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentIssues = filteredIssues.slice(indexOfFirstItem, indexOfLastItem);
 
   const toggleStatus = (id: string) => {
     const issue = issues.find((i) => i.id === id);
@@ -81,6 +99,20 @@ const Issues = () => {
                   <span className="font-medium text-card-foreground">{resolvedCount}</span>
                   <span className="text-muted-foreground">Resolved</span>
                 </div>
+              </div>
+              <div className="flex items-center gap-2 rounded-xl bg-card border border-border px-3 py-2 shadow-sm">
+                <button
+                  onClick={() => setCategoryFilter("security")}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${categoryFilter === "security" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-card-foreground"}`}
+                >
+                  Security
+                </button>
+                <button
+                  onClick={() => setCategoryFilter("quality")}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${categoryFilter === "quality" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-card-foreground"}`}
+                >
+                  Code Quality
+                </button>
               </div>
               <div className="ml-auto flex flex-wrap items-center gap-2">
                 <Filter className="h-3.5 w-3.5 text-muted-foreground hidden sm:block" />
@@ -128,6 +160,7 @@ const Issues = () => {
                     <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Repository</TableHead>
                     <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hidden md:table-cell">File</TableHead>
                     <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Issue</TableHead>
+                    <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hidden sm:table-cell">Category</TableHead>
                     <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Severity</TableHead>
                     <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hidden sm:table-cell">Status</TableHead>
                     <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hidden lg:table-cell">Date</TableHead>
@@ -135,11 +168,16 @@ const Issues = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredIssues.map((issue) => (
+                  {currentIssues.map((issue) => (
                     <TableRow key={issue.id} className="border-border hover:bg-primary/[0.03] transition-colors">
                       <TableCell className="font-mono text-xs font-medium text-card-foreground">{issue.repository}</TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground max-w-[160px] truncate hidden md:table-cell">{issue.fileName}</TableCell>
                       <TableCell className="text-sm text-card-foreground max-w-[180px] sm:max-w-[260px] truncate">{issue.title}</TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        <Badge variant="outline" className={`text-[10px] font-semibold uppercase rounded-lg px-2 py-0.5 ${categorizedIssues.security.some((item) => item.id === issue.id) ? "border-rose-200 text-rose-600 bg-rose-50 dark:border-rose-800 dark:text-rose-400 dark:bg-rose-900/20" : "border-amber-200 text-amber-600 bg-amber-50 dark:border-amber-800 dark:text-amber-400 dark:bg-amber-900/20"}`}>
+                          {categorizedIssues.security.some((item) => item.id === issue.id) ? "Security" : "Code Quality"}
+                        </Badge>
+                      </TableCell>
                       <TableCell>
                         <Badge className={`text-[10px] font-semibold uppercase rounded-lg px-2 py-0.5 ${severityVariant[issue.severity]}`}>
                           {issue.severity}
@@ -168,7 +206,7 @@ const Issues = () => {
                   ))}
                   {filteredIssues.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-12">
+                      <TableCell colSpan={8} className="text-center py-12">
                         <div className="flex flex-col items-center gap-2">
                           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
                             <AlertCircle className="h-5 w-5 text-muted-foreground" />
@@ -181,6 +219,54 @@ const Issues = () => {
                 </TableBody>
               </Table>
               </div>
+
+              {/* Pagination controls */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between border-t border-border px-4 py-3 bg-secondary/10 flex-wrap gap-3">
+                  <div className="text-xs text-muted-foreground">
+                    Showing <span className="font-medium text-foreground">{indexOfFirstItem + 1}</span> to{" "}
+                    <span className="font-medium text-foreground">
+                      {Math.min(indexOfLastItem, filteredIssues.length)}
+                    </span>{" "}
+                    of <span className="font-medium text-foreground">{filteredIssues.length}</span> issues
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                      disabled={currentPage === 1}
+                      className="h-8 rounded-lg text-xs"
+                    >
+                      Previous
+                    </Button>
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                        <Button
+                          key={page}
+                          variant={currentPage === page ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setCurrentPage(page)}
+                          className={`h-8 w-8 rounded-lg text-xs p-0 ${
+                            currentPage === page ? "" : "hover:bg-accent hover:text-accent-foreground"
+                          }`}
+                        >
+                          {page}
+                        </Button>
+                      ))}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                      disabled={currentPage === totalPages}
+                      className="h-8 rounded-lg text-xs"
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
             </motion.div>
             )}
           </main>
