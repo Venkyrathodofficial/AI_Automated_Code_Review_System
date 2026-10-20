@@ -103,16 +103,18 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   };
 }
 
-export async function fetchReviews(): Promise<ReviewRow[]> {
+export async function fetchReviews(repoFullName?: string): Promise<ReviewRow[]> {
   const headers = await getAuthHeaders();
-  const res = await fetch(`${BASE}/reviews`, { headers });
+  const url = repoFullName ? `${BASE}/reviews?repo=${encodeURIComponent(repoFullName)}` : `${BASE}/reviews`;
+  const res = await fetch(url, { headers });
   if (!res.ok) throw new Error("Failed to fetch reviews");
   return res.json();
 }
 
-export async function fetchStats(): Promise<Stats> {
+export async function fetchStats(repoFullName?: string): Promise<Stats> {
   const headers = await getAuthHeaders();
-  const res = await fetch(`${BASE}/stats`, { headers });
+  const url = repoFullName ? `${BASE}/stats?repo=${encodeURIComponent(repoFullName)}` : `${BASE}/stats`;
+  const res = await fetch(url, { headers });
   if (!res.ok) throw new Error("Failed to fetch stats");
   return res.json();
 }
@@ -135,6 +137,19 @@ export async function updateReviewStatus(
     body: JSON.stringify({ status }),
   });
   if (!res.ok) throw new Error("Failed to update review");
+  return res.json();
+}
+
+export async function purgeReviews(repoFullName?: string): Promise<{ success: boolean; count: number }> {
+  const headers = await getAuthHeaders();
+  const url = repoFullName 
+    ? `${BASE}/reviews/purge?repo=${encodeURIComponent(repoFullName)}`
+    : `${BASE}/reviews/purge`;
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers,
+  });
+  if (!res.ok) throw new Error("Failed to purge reviews");
   return res.json();
 }
 
@@ -240,6 +255,17 @@ export async function fetchScanHistory(repoFullName?: string): Promise<ScanHisto
     : `${BASE}/scan-history`;
   const res = await fetch(url, { headers });
   if (!res.ok) throw new Error("Failed to fetch scan history");
+  return res.json();
+}
+
+export async function submitReviewFeedback(id: string, rating: "up" | "down"): Promise<{ success: boolean; message: string }> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${BASE}/reviews/${id}/feedback`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ rating }),
+  });
+  if (!res.ok) throw new Error("Failed to submit feedback");
   return res.json();
 }
 

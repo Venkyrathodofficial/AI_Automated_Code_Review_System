@@ -1,0 +1,16 @@
+[
+  {
+    "file": "evaluation/fixtures/sql_injection.js",
+    "category": "security",
+    "severity": "critical",
+    "title": "SQL Injection Vulnerability",
+    "rule_id": "javascript.express.security.injection.tainted-sql-string"
+  },
+  {
+    "file": "evaluation/fixtures/sql_injection.js",
+    "category": "security",
+    "severity": "critical",
+    "title": "Hardcoded Secrets",
+    "rule_id": "generic.secrets.security.detected-postgres-password"
+  }
+]

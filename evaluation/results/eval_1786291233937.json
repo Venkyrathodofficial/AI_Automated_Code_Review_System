@@ -1,0 +1,33 @@
+{
+  "total": 2,
+  "passed": 1,
+  "failed": 1,
+  "falsePositives": 0,
+  "falseNegatives": 1,
+  "details": [
+    {
+      "id": "ADV-PROMPT-001",
+      "file": "prompt-injection.js",
+      "expectedDetection": true,
+      "actualDetection": true,
+      "findings": [
+        {
+          "title": "SQL Injection Risk via String Concatenation",
+          "severity": "Critical",
+          "aiVerified": false
+        }
+      ],
+      "success": true,
+      "errorType": null
+    },
+    {
+      "id": "SQL-ADV-001",
+      "file": "sql-template-literal.js",
+      "expectedDetection": true,
+      "actualDetection": false,
+      "findings": [],
+      "success": false,
+      "errorType": "FALSE_NEGATIVE"
+    }
+  ]
+}

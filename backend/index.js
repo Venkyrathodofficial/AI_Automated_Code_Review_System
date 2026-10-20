@@ -4,6 +4,9 @@ const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
 const { createClient } = require("@supabase/supabase-js");
+const AnalysisOrchestrator = require("./src/analysis/orchestrator");
+const FixValidator = require("./src/analysis/remediation/fixValidator");
+const PRVerifier = require("./src/analysis/github/prVerifier");
 
 const app = express();
 app.use(cors());
@@ -103,9 +106,33 @@ app.post("/api/fix-code", async (req, res) => {
 // ============================
 app.post("/api/commit-fix", authMiddleware, async (req, res) => {
   try {
-    const { fileName, improvedCode, repo, branch, token } = req.body;
+    const { fileName, improvedCode, repo, branch, token, originalCode, category } = req.body;
     if (!fileName || !improvedCode || !repo) {
       return res.status(400).json({ error: "Missing fileName, improvedCode, or repo" });
+    }
+
+    // ── Fix Validation Gate ──────────────────────────────────
+    // If originalCode is provided, validate the fix before committing
+    if (originalCode) {
+      const validator = new FixValidator();
+      const validation = await validator.validate(
+        originalCode,
+        improvedCode,
+        fileName,
+        category || "general_vulnerability"
+      );
+
+      if (validation.verdict === "BLOCK") {
+        return res.status(422).json({
+          error: "Fix validation failed",
+          validation: validation
+        });
+      }
+
+      if (validation.verdict === "WARN") {
+        // Allow commit but include warning in response
+        console.warn(`⚠️ Fix for ${fileName} passed with warnings: ${validation.explanation}`);
+      }
     }
 
     // 1. Determine which GitHub token to use
@@ -801,39 +828,49 @@ async function scanRepository(repoFullName, userId, ref, planTier = "free") {
   const allIssues = [];
   const geminiOpts = { userId, scanId, repoName: repoFullName, supabase };
 
+  const filesWithContent = [];
   for (const file of filesToScan) {
     try {
       const content = await fetchFileContent(repoFullName, file.path, ref, userToken);
-      if (!content) continue;
-
-      const fileIssues = await analyzeFile(file.path, content, geminiOpts);
-      for (const issue of fileIssues) {
-        allIssues.push({
-          user_id: userId,
-          repository_name: repoFullName,
-          file_name: issue.file_name,
-          issue_title: issue.issue_title,
-          issue_description: issue.issue_description,
-          severity: issue.severity,
-          suggestion: issue.suggestion,
-          optimization_tip: issue.optimization_tip,
-          risk_score: issue.risk_score,
-          commit_id: ref || "initial-scan",
-          commit_message: ref ? `Commit ${ref.substring(0, 7)}` : "Initial repository scan",
-          status: "Open",
-          scan_id: scanId,
-          line_number: issue.line_number || null,
-          category: issue.category || "general_vulnerability",
-          secure_code: issue.secure_code || "",
-          best_practices: issue.best_practices || "",
-          ai_model: issue.ai_model || "Gemini 2.5 Flash",
-          confidence_score: issue.confidence_score !== undefined ? issue.confidence_score : 0.92,
-          validation_status: issue.validation_status || "passed"
-        });
+      if (content) {
+        filesWithContent.push({ path: file.path, size: file.size, content });
       }
     } catch (err) {
-      console.error(`   ⚠️ Error analyzing ${file.path}:`, err.message);
+      console.error(`   ⚠️ Error fetching ${file.path}:`, err.message);
     }
+  }
+
+  const orchestrator = new AnalysisOrchestrator();
+  const pipelineResult = await orchestrator.runPipeline(filesWithContent);
+
+  for (const finding of pipelineResult.findings) {
+    let risk_score = 30;
+    if (finding.severity.toLowerCase() === 'critical') risk_score = 90;
+    else if (finding.severity.toLowerCase() === 'high') risk_score = 70;
+    else if (finding.severity.toLowerCase() === 'medium') risk_score = 50;
+
+    allIssues.push({
+      user_id: userId,
+      repository_name: repoFullName,
+      file_name: finding.file,
+      issue_title: finding.title,
+      issue_description: finding.description,
+      severity: finding.severity,
+      suggestion: finding.remediation_explanation || finding.description,
+      optimization_tip: `Detected by ${finding.scanner}. ${finding.cwe ? 'CWE: ' + finding.cwe : ''}`,
+      risk_score: risk_score,
+      commit_id: ref || "initial-scan",
+      commit_message: ref ? `Commit ${ref.substring(0, 7)}` : "Initial repository scan",
+      status: "Open",
+      scan_id: scanId,
+      line_number: finding.line,
+      category: finding.category,
+      secure_code: finding.secure_fix || "",
+      best_practices: finding.evidence ? `Code snippet:\n${finding.evidence}` : "",
+      ai_model: finding.ai_verified ? "Gemini 2.5 Flash" : "Static Engine",
+      confidence_score: finding.confidence || 0.9,
+      validation_status: finding.ai_verified ? "passed" : "pending"
+    });
   }
 
   markScanComplete(userId, repoFullName);
@@ -857,6 +894,14 @@ async function scanRepository(repoFullName, userId, ref, planTier = "free") {
     commit_id: ref || "initial-scan",
     commit_message: ref ? `Commit ${ref.substring(0, 7)}` : "Initial repository scan"
   });
+
+  // Archive/resolve previous open issues for this repo before inserting new scan findings
+  await supabase
+    .from("code_reviews")
+    .update({ status: "Resolved" })
+    .eq("user_id", userId)
+    .eq("repository_name", repoFullName)
+    .eq("status", "open");
 
   // Insert all issues in batches of 20
   if (allIssues.length > 0) {
@@ -933,41 +978,50 @@ async function analyzeChangedFiles(repoFullName, userId, filePaths, commitId, co
     return { filesScanned: 0, issuesFound: 0 };
   }
 
+  const filesWithContent = [];
   const allIssues = [];
-
   for (const filePath of codeFiles.slice(0, 20)) {
     try {
       const content = await fetchFileContent(repoFullName, filePath, commitId, userToken);
-      if (!content) continue;
-
-      const fileIssues = await analyzeFile(filePath, content);
-      for (const issue of fileIssues) {
-        allIssues.push({
-          user_id: userId,
-          repository_name: repoFullName,
-          file_name: issue.file_name,
-          issue_title: issue.issue_title,
-          issue_description: issue.issue_description,
-          severity: issue.severity,
-          suggestion: issue.suggestion,
-          optimization_tip: issue.optimization_tip,
-          risk_score: issue.risk_score,
-          commit_id: commitId || "unknown",
-          commit_message: commitMessage || "No message",
-          status: "Open",
-          scan_id: scanId,
-          line_number: issue.line_number || null,
-          category: issue.category || "general_vulnerability",
-          secure_code: issue.secure_code || "",
-          best_practices: issue.best_practices || "",
-          ai_model: issue.ai_model || "Gemini 2.5 Flash",
-          confidence_score: issue.confidence_score !== undefined ? issue.confidence_score : 0.92,
-          validation_status: issue.validation_status || "passed"
-        });
+      if (content) {
+        filesWithContent.push({ path: filePath, content, size: content.length });
       }
     } catch (err) {
-      console.error(`   ⚠️ Error analyzing ${filePath}:`, err.message);
+      console.error(`   ⚠️ Error fetching ${filePath}:`, err.message);
     }
+  }
+
+  const orchestrator = new AnalysisOrchestrator();
+  const pipelineResult = await orchestrator.runPipeline(filesWithContent);
+
+  for (const finding of pipelineResult.findings) {
+    let risk_score = 30;
+    if (finding.severity.toLowerCase() === 'critical') risk_score = 90;
+    else if (finding.severity.toLowerCase() === 'high') risk_score = 70;
+    else if (finding.severity.toLowerCase() === 'medium') risk_score = 50;
+
+    allIssues.push({
+      user_id: userId,
+      repository_name: repoFullName,
+      file_name: finding.file,
+      issue_title: finding.title,
+      issue_description: finding.description,
+      severity: finding.severity,
+      suggestion: finding.remediation_explanation || finding.description,
+      optimization_tip: `Detected by ${finding.scanner}. ${finding.cwe ? 'CWE: ' + finding.cwe : ''}`,
+      risk_score: risk_score,
+      commit_id: commitId || "unknown",
+      commit_message: commitMessage || "No message",
+      status: "Open",
+      scan_id: scanId,
+      line_number: finding.line,
+      category: finding.category,
+      secure_code: finding.secure_fix || "",
+      best_practices: finding.evidence ? `Code snippet:\n${finding.evidence}` : "",
+      ai_model: finding.ai_verified ? "Gemini 2.5 Flash" : "Static Engine",
+      confidence_score: finding.confidence || 0.9,
+      validation_status: finding.ai_verified ? "passed" : "pending"
+    });
   }
 
   // Calculate score & grade
@@ -1502,11 +1556,18 @@ app.get("/api/file-content", authMiddleware, async (req, res) => {
 // ============================
 app.get("/api/reviews", authMiddleware, async (req, res) => {
   try {
-    const { data, error } = await req.supabase
+    const { repo } = req.query;
+    let query = req.supabase
       .from("code_reviews")
       .select("*")
       .eq("user_id", req.user.id)
       .order("created_at", { ascending: false });
+
+    if (repo && repo !== "all") {
+      query = query.eq("repository_name", repo);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       return res.status(500).json({ error: error.message });
@@ -1517,7 +1578,8 @@ app.get("/api/reviews", authMiddleware, async (req, res) => {
       ...r,
       ai_model: r.ai_model || "Gemini 2.5 Flash",
       confidence_score: r.confidence_score !== null && r.confidence_score !== undefined ? Number(r.confidence_score) : 0.92,
-      validation_status: r.validation_status || "passed"
+      validation_status: r.validation_status || "passed",
+      engine_version: "v2"
     }));
     
     return res.json(reviews);
@@ -1531,10 +1593,17 @@ app.get("/api/reviews", authMiddleware, async (req, res) => {
 // ============================
 app.get("/api/stats", authMiddleware, async (req, res) => {
   try {
-    const { data, error } = await req.supabase
+    const { repo } = req.query;
+    let query = req.supabase
       .from("code_reviews")
       .select("*")
       .eq("user_id", req.user.id);
+
+    if (repo && repo !== "all") {
+      query = query.eq("repository_name", repo);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       return res.status(500).json({ error: error.message });
@@ -1581,6 +1650,32 @@ app.get("/api/stats", authMiddleware, async (req, res) => {
       open: reviews.filter((r) => r.status?.toLowerCase() === "open").length,
       resolved: reviews.filter((r) => r.status?.toLowerCase() === "resolved").length,
     });
+  } catch (err) {
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ============================
+// API: Purge user's code reviews
+// ============================
+app.delete("/api/reviews/purge", authMiddleware, async (req, res) => {
+  try {
+    const { repo } = req.query;
+    let query = req.supabase
+      .from("code_reviews")
+      .delete()
+      .eq("user_id", req.user.id);
+
+    if (repo && repo !== "all") {
+      query = query.eq("repository_name", repo);
+    }
+
+    const { error } = await query;
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    return res.json({ success: true, message: repo && repo !== "all" ? `Purged reviews for ${repo}` : "Purged all code reviews" });
   } catch (err) {
     return res.status(500).json({ error: "Internal Server Error" });
   }
@@ -2069,6 +2164,54 @@ app.post("/webhook/github/:userId", async (req, res) => {
     // Respond immediately, then analyze in background
     res.status(200).send("OK");
 
+    // ── Handle pull_request events ─────────────────────────────
+    if (event === "pull_request") {
+      const action = payload.action; // "opened", "synchronize", "reopened"
+      if (["opened", "synchronize", "reopened"].includes(action)) {
+        const prNumber = payload.pull_request?.number;
+        const headSha = payload.pull_request?.head?.sha;
+
+        if (prNumber) {
+          try {
+            // Get the user's GitHub token for API calls
+            const { data: profile } = await supabase
+              .from("profiles")
+              .select("github_token")
+              .eq("id", userId)
+              .single();
+
+            if (profile?.github_token) {
+              const prVerifier = new PRVerifier();
+              const files = await prVerifier.fetchPRFiles(repository, prNumber, profile.github_token);
+
+              if (files.length > 0) {
+                const result = await prVerifier.verify(files);
+                const comment = prVerifier.generatePRComment(result, repository);
+
+                await prVerifier.postPRComment(repository, prNumber, comment, profile.github_token);
+
+                if (headSha && result.readiness) {
+                  await prVerifier.postStatusCheck(
+                    repository,
+                    headSha,
+                    result.readiness.verdict,
+                    `Sentinel: ${result.readiness.verdict} (${result.readiness.overallScore}/100)`,
+                    profile.github_token
+                  );
+                }
+
+                console.log(`✅ PR #${prNumber} verified: ${result.readiness?.verdict || "UNKNOWN"}`);
+              }
+            }
+          } catch (prErr) {
+            console.error(`❌ PR verification error for PR #${prNumber}:`, prErr.message);
+          }
+        }
+      }
+      return; // PR events are handled separately from push events
+    }
+
+    // ── Handle push events ───────────────────────────────────────
     // Collect all changed files from the push
     const allFiles = extractChangedFiles(payload);
 
@@ -2132,6 +2275,100 @@ app.post("/webhook/github", async (req, res) => {
   } catch (err) {
     console.error("❌ Webhook Error:", err);
     return res.status(500).send("Internal Server Error");
+  }
+});
+
+// ============================
+// API: PR Verification (v2)
+// ============================
+app.post("/api/v2/pr/verify", authMiddleware, async (req, res) => {
+  try {
+    const { repoFullName, prNumber } = req.body;
+    if (!repoFullName || !prNumber) {
+      return res.status(400).json({ error: "Missing repoFullName or prNumber" });
+    }
+
+    // Get user's GitHub token
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("github_token")
+      .eq("id", req.user.id)
+      .single();
+
+    if (!profile?.github_token) {
+      return res.status(401).json({ error: "GitHub account not connected." });
+    }
+
+    const prVerifier = new PRVerifier();
+
+    // 1. Fetch changed files from the PR
+    const files = await prVerifier.fetchPRFiles(repoFullName, prNumber, profile.github_token);
+    
+    if (files.length === 0) {
+      return res.json({
+        verdict: "PASS",
+        message: "No code files changed in this PR.",
+        findingCount: 0
+      });
+    }
+
+    // 2. Run the verification pipeline
+    const result = await prVerifier.verify(files);
+
+    // 3. Generate and post comment
+    const comment = prVerifier.generatePRComment(result, repoFullName);
+    try {
+      await prVerifier.postPRComment(repoFullName, prNumber, comment, profile.github_token);
+    } catch (commentErr) {
+      console.error("Failed to post PR comment:", commentErr.message);
+    }
+
+    // 4. Post status check on the PR head commit
+    try {
+      // Get the PR head SHA
+      const prUrl = `https://api.github.com/repos/${repoFullName}/pulls/${prNumber}`;
+      const prRes = await fetch(prUrl, {
+        headers: {
+          Accept: "application/vnd.github.v3+json",
+          "User-Agent": "Sentinel-AI-Bot",
+          Authorization: `token ${profile.github_token}`
+        }
+      });
+      if (prRes.ok) {
+        const prData = await prRes.json();
+        const headSha = prData.head?.sha;
+        if (headSha && result.readiness) {
+          await prVerifier.postStatusCheck(
+            repoFullName,
+            headSha,
+            result.readiness.verdict,
+            `Sentinel: ${result.readiness.verdict} (${result.readiness.overallScore}/100)`,
+            profile.github_token
+          );
+        }
+      }
+    } catch (statusErr) {
+      console.error("Failed to post status check:", statusErr.message);
+    }
+
+    return res.json({
+      verdict: result.readiness?.verdict || "UNKNOWN",
+      score: result.readiness?.overallScore || null,
+      findingCount: result.findings?.length || 0,
+      findings: result.findings?.map(f => ({
+        title: f.title,
+        file: f.file,
+        line: f.line,
+        severity: f.severity,
+        category: f.category,
+        cwe: f.cwe
+      })) || [],
+      readiness: result.readiness || null,
+      commentPosted: true
+    });
+  } catch (err) {
+    console.error("/api/v2/pr/verify error:", err.message);
+    return res.status(500).json({ error: "PR verification failed: " + err.message });
   }
 });
 

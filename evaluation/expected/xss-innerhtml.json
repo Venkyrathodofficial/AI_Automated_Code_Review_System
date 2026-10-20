@@ -1,0 +1,5 @@
+{
+  "id": "XSS-001",
+  "expected_detection": true,
+  "expected_severity": "High"
+}

@@ -1,0 +1,5 @@
+{
+  "id": "ADV-PROMPT-001",
+  "expected_detection": true,
+  "expected_severity": "Critical"
+}
