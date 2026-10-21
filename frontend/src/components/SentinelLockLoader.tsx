@@ -35,7 +35,7 @@ export function SentinelLockLoader({
       <div className="pointer-events-none absolute w-80 h-80 bg-[#2ef06e]/15 rounded-full blur-[100px] animate-pulse-glow" />
 
       {/* Interactive Padlock Stage with Circuit Traces */}
-      <div className="relative w-[320px] sm:w-[380px] h-[220px] sm:h-[260px] flex items-center justify-center">
+      <div className="relative w-full max-w-[280px] xs:max-w-[320px] sm:max-w-[380px] h-[190px] xs:h-[220px] sm:h-[260px] flex items-center justify-center">
         {/* Animated SVG Circuit Lines Left & Right */}
         <svg
           className="absolute inset-0 w-full h-full pointer-events-none"
@@ -109,7 +109,7 @@ export function SentinelLockLoader({
         <motion.div
           animate={{ scale: [0.92, 1.06, 0.92], opacity: [0.4, 0.8, 0.4] }}
           transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute top-[18%] left-1/2 -translate-x-1/2 w-28 h-28 rounded-full border border-[#2ef06e]/40 shadow-[0_0_20px_rgba(46,240,110,0.3)] pointer-events-none"
+          className="absolute top-[18%] left-1/2 -translate-x-1/2 w-24 sm:w-28 h-24 sm:h-28 rounded-full border border-[#2ef06e]/40 shadow-[0_0_20px_rgba(46,240,110,0.3)] pointer-events-none"
         />
 
         {/* 3D Metallic Padlock with Breathing Animation */}
@@ -121,7 +121,7 @@ export function SentinelLockLoader({
           <img
             src="/sentinel_lock.jpg"
             alt="Sentinel Security Lock"
-            className="w-[180px] sm:w-[210px] object-contain select-none pointer-events-none drop-shadow-[0_15px_35px_rgba(0,0,0,0.95)]"
+            className="w-[140px] xs:w-[170px] sm:w-[210px] object-contain select-none pointer-events-none drop-shadow-[0_15px_35px_rgba(0,0,0,0.95)]"
             style={{
               mixBlendMode: "screen",
               filter: "contrast(1.2) brightness(1.08)",
@@ -133,7 +133,7 @@ export function SentinelLockLoader({
       </div>
 
       {/* 4 Sequential Pulsing Green Status LEDs */}
-      <div className="flex items-center gap-2.5 mt-2 mb-4">
+      <div className="flex items-center gap-2 sm:gap-2.5 mt-2 mb-3 sm:mb-4">
         {[0, 1, 2, 3].map((dot) => (
           <motion.span
             key={dot}
@@ -158,21 +158,21 @@ export function SentinelLockLoader({
       </div>
 
       {/* Main Title & Dynamic Step Readout */}
-      <div className="space-y-1.5 mb-5">
-        <h3 className="text-base sm:text-lg font-extrabold tracking-tight text-white flex items-center justify-center gap-2">
-          <ShieldCheck className="h-4 w-4 text-[#2ef06e]" />
-          <span>{message}</span>
+      <div className="space-y-1 sm:space-y-1.5 mb-4 sm:mb-5">
+        <h3 className="text-sm sm:text-base md:text-lg font-extrabold tracking-tight text-white flex items-center justify-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-[#2ef06e] shrink-0" />
+          <span className="truncate max-w-[260px] sm:max-w-none">{message}</span>
         </h3>
-        <p className="font-mono text-xs text-[#2ef06e] h-5 transition-all">
+        <p className="font-mono text-[11px] sm:text-xs text-[#2ef06e] h-5 transition-all truncate px-2">
           &gt; {steps[stepIndex]}
         </p>
-        <p className="text-[11px] text-gray-400 max-w-xs mx-auto leading-relaxed">
+        <p className="text-[10px] sm:text-[11px] text-gray-400 max-w-xs mx-auto leading-relaxed px-2">
           {subMessage}
         </p>
       </div>
 
       {/* Indeterminate Glowing Neon Progress Bar */}
-      <div className="w-56 sm:w-64 h-1.5 bg-white/10 rounded-full overflow-hidden relative shadow-inner">
+      <div className="w-44 xs:w-56 sm:w-64 h-1.5 bg-white/10 rounded-full overflow-hidden relative shadow-inner">
         <motion.div
           animate={{ x: ["-100%", "100%"] }}
           transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
@@ -181,7 +181,7 @@ export function SentinelLockLoader({
       </div>
 
       {/* Security Tag */}
-      <div className="mt-4 text-[10px] font-mono text-gray-500 uppercase tracking-widest">
+      <div className="mt-3 sm:mt-4 text-[9px] sm:text-[10px] font-mono text-gray-500 uppercase tracking-widest">
         TLS 1.3 • AES-256-GCM SECURE CHANNEL
       </div>
     </div>

@@ -251,14 +251,14 @@ const Login = () => {
       <div className="pointer-events-none absolute bottom-1/4 right-1/4 w-[400px] h-[300px] bg-[#2ef06e]/5 rounded-full blur-[120px]" />
 
       {/* ───── TOP FLOATING HEADER ───── */}
-      <header className="relative z-40 max-w-6xl mx-auto w-full pt-6 sm:pt-8 px-4 sm:px-6 flex items-center justify-between">
-        <Link to="/" className="flex items-center gap-2.5 group">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-black border border-white/15 text-white group-hover:scale-105 transition-transform shadow-sm">
+      <header className="relative z-40 max-w-6xl mx-auto w-full pt-4 sm:pt-8 px-3.5 sm:px-6 flex items-center justify-between">
+        <Link to="/" className="flex items-center gap-2 sm:gap-2.5 group shrink-0">
+          <div className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-xl bg-black border border-white/15 text-white group-hover:scale-105 transition-transform shadow-sm shrink-0">
             <ShieldCheck className="h-4 w-4 text-[#2ef06e]" />
           </div>
-          <span className="text-sm font-extrabold tracking-tight text-white flex items-center gap-1">
+          <span className="text-xs sm:text-sm font-extrabold tracking-tight text-white flex items-center gap-1">
             CodeAurora <span className="text-white font-black">Sentinel</span>
-            <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded-md bg-[#2ef06e]/15 text-[#2ef06e] border border-[#2ef06e]/30 tracking-wider">
+            <span className="text-[9px] sm:text-[10px] font-black uppercase px-1.5 py-0.5 rounded-md bg-[#2ef06e]/15 text-[#2ef06e] border border-[#2ef06e]/30 tracking-wider">
               AI
             </span>
           </span>
@@ -266,15 +266,16 @@ const Login = () => {
 
         <Link
           to="/"
-          className="inline-flex items-center gap-2 text-xs font-bold text-gray-300 hover:text-white transition-colors bg-white/5 hover:bg-white/10 border border-white/10 rounded-full px-4 py-2 backdrop-blur-md"
+          className="inline-flex items-center gap-1.5 sm:gap-2 text-xs font-bold text-gray-300 hover:text-white transition-colors bg-white/5 hover:bg-white/10 border border-white/10 rounded-full px-3 sm:px-4 py-1.5 sm:py-2 backdrop-blur-md shrink-0"
         >
           <ArrowLeft className="h-3.5 w-3.5 text-[#2ef06e]" />
-          <span>Back to Homepage</span>
+          <span className="hidden xs:inline">Back to Homepage</span>
+          <span className="xs:hidden">Home</span>
         </Link>
       </header>
 
       {/* ───── MAIN AUTH & SHOWCASE CONSOLE ───── */}
-      <main className="relative z-20 flex-1 flex items-center justify-center max-w-6xl mx-auto w-full px-4 sm:px-6 py-8 sm:py-12">
+      <main className="relative z-20 flex-1 flex items-center justify-center max-w-6xl mx-auto w-full px-3.5 sm:px-6 py-6 sm:py-12">
         <div className="w-full grid lg:grid-cols-12 gap-8 lg:gap-12 items-center">
           
           {/* ──── LEFT COLUMN: CYBERSECURITY SHOWCASE & 3D ARTWORK (5 COLS) ──── */}
@@ -378,11 +379,11 @@ const Login = () => {
               
               {/* Segmented Pill Mode Switcher (Sign In / Create Account) */}
               {mode !== "reset" && (
-                <div className="p-1 bg-[#12141a]/90 border border-white/10 rounded-full flex items-center mb-6 shadow-xl backdrop-blur-md">
+                <div className="p-1 bg-[#12141a]/90 border border-white/10 rounded-full flex items-center mb-5 sm:mb-6 shadow-xl backdrop-blur-md">
                   <button
                     type="button"
                     onClick={() => switchMode("signin")}
-                    className={`flex-1 py-2 text-xs font-extrabold rounded-full transition-all ${
+                    className={`flex-1 py-2 sm:py-2.5 text-xs font-extrabold rounded-full transition-all ${
                       mode === "signin"
                         ? "bg-white text-black shadow-md"
                         : "text-gray-400 hover:text-white"
@@ -393,7 +394,7 @@ const Login = () => {
                   <button
                     type="button"
                     onClick={() => switchMode("signup")}
-                    className={`flex-1 py-2 text-xs font-extrabold rounded-full transition-all ${
+                    className={`flex-1 py-2 sm:py-2.5 text-xs font-extrabold rounded-full transition-all ${
                       mode === "signup"
                         ? "bg-[#2ef06e] text-black shadow-md shadow-[#2ef06e]/20"
                         : "text-gray-400 hover:text-white"
@@ -409,14 +410,14 @@ const Login = () => {
                 initial={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.25 }}
-                className="relative rounded-3xl bg-[#0c0e14]/90 border border-white/10 p-7 sm:p-9 shadow-2xl backdrop-blur-2xl overflow-hidden"
+                className="relative rounded-2xl sm:rounded-3xl bg-[#0c0e14]/90 border border-white/10 p-5 xs:p-6 sm:p-8 md:p-9 shadow-2xl backdrop-blur-2xl overflow-hidden"
               >
                 {/* Glowing Top Accent Border */}
                 <div className="absolute top-0 left-0 right-0 h-[1.5px] bg-gradient-to-r from-transparent via-[#2ef06e]/60 to-transparent" />
 
                 {/* Form Header */}
-                <div className="space-y-2 mb-6">
-                  <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
+                <div className="space-y-1.5 sm:space-y-2 mb-5 sm:mb-6">
+                  <h1 className="text-xl sm:text-2xl md:text-3xl font-extrabold tracking-tight text-white">
                     {current.title}
                   </h1>
                   <p className="text-xs sm:text-sm text-gray-400 leading-relaxed">
@@ -469,7 +470,7 @@ const Login = () => {
                           onChange={(e) => setEmail(e.target.value)}
                           placeholder="developer@company.com"
                           required
-                          className="h-11 pl-10 rounded-xl bg-black/40 border-white/10 text-white placeholder:text-gray-500 focus-visible:border-[#2ef06e] focus-visible:ring-1 focus-visible:ring-[#2ef06e] text-sm"
+                          className="h-11 pl-10 rounded-xl bg-black/40 border-white/10 text-white placeholder:text-gray-500 focus-visible:border-[#2ef06e] focus-visible:ring-1 focus-visible:ring-[#2ef06e] text-base sm:text-sm"
                         />
                       </div>
                     </div>
@@ -521,7 +522,7 @@ const Login = () => {
                             onChange={(e) => setName(e.target.value)}
                             placeholder="Alex Developer"
                             required
-                            className="h-11 pl-10 rounded-xl bg-black/40 border-white/10 text-white placeholder:text-gray-500 focus-visible:border-[#2ef06e] focus-visible:ring-1 focus-visible:ring-[#2ef06e] text-sm"
+                            className="h-11 pl-10 rounded-xl bg-black/40 border-white/10 text-white placeholder:text-gray-500 focus-visible:border-[#2ef06e] focus-visible:ring-1 focus-visible:ring-[#2ef06e] text-base sm:text-sm"
                           />
                         </div>
                       </div>
@@ -544,7 +545,7 @@ const Login = () => {
                           onChange={(e) => setEmail(e.target.value)}
                           placeholder="developer@company.com"
                           required
-                          className="h-11 pl-10 rounded-xl bg-black/40 border-white/10 text-white placeholder:text-gray-500 focus-visible:border-[#2ef06e] focus-visible:ring-1 focus-visible:ring-[#2ef06e] text-sm"
+                          className="h-11 pl-10 rounded-xl bg-black/40 border-white/10 text-white placeholder:text-gray-500 focus-visible:border-[#2ef06e] focus-visible:ring-1 focus-visible:ring-[#2ef06e] text-base sm:text-sm"
                         />
                       </div>
                     </div>
@@ -578,7 +579,7 @@ const Login = () => {
                           placeholder="••••••••"
                           required
                           minLength={mode === "signup" ? 8 : 6}
-                          className="h-11 pl-10 pr-10 rounded-xl bg-black/40 border-white/10 text-white placeholder:text-gray-500 focus-visible:border-[#2ef06e] focus-visible:ring-1 focus-visible:ring-[#2ef06e] text-sm"
+                          className="h-11 pl-10 pr-10 rounded-xl bg-black/40 border-white/10 text-white placeholder:text-gray-500 focus-visible:border-[#2ef06e] focus-visible:ring-1 focus-visible:ring-[#2ef06e] text-base sm:text-sm"
                         />
                         <button
                           type="button"
@@ -610,7 +611,7 @@ const Login = () => {
                             placeholder="••••••••"
                             required
                             minLength={8}
-                            className="h-11 pl-10 pr-10 rounded-xl bg-black/40 border-white/10 text-white placeholder:text-gray-500 focus-visible:border-[#2ef06e] focus-visible:ring-1 focus-visible:ring-[#2ef06e] text-sm"
+                            className="h-11 pl-10 pr-10 rounded-xl bg-black/40 border-white/10 text-white placeholder:text-gray-500 focus-visible:border-[#2ef06e] focus-visible:ring-1 focus-visible:ring-[#2ef06e] text-base sm:text-sm"
                           />
                           <button
                             type="button"
@@ -664,8 +665,8 @@ const Login = () => {
                 )}
 
                 {/* Privacy & Zero Human Code Access Footnote */}
-                <div className="pt-6 mt-6 border-t border-white/10 flex items-center justify-center gap-2 text-[11px] text-gray-400 font-medium text-center">
-                  <ShieldCheck className="h-4 w-4 text-[#2ef06e] flex-shrink-0" />
+                <div className="pt-5 sm:pt-6 mt-5 sm:mt-6 border-t border-white/10 flex flex-wrap sm:flex-nowrap items-center justify-center gap-1.5 sm:gap-2 text-[10px] sm:text-[11px] text-gray-400 font-medium text-center">
+                  <ShieldCheck className="h-4 w-4 text-[#2ef06e] shrink-0" />
                   <span>Zero Human Code Access Architecture • In-Memory AST Scanning</span>
                 </div>
               </motion.div>
