@@ -47,17 +47,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
+    const cleanEmail = email.trim();
     const { data, error } = await supabase.auth.signInWithPassword({
-      email,
+      email: cleanEmail,
       password,
     });
     if (!error && data.user) {
-      logActivity("login", data.user.id, email);
+      logActivity("login", data.user.id, cleanEmail);
     }
     return { error: error as Error | null };
   };
 
   const signUp = async (email: string, password: string, name?: string) => {
+    const cleanEmail = email.trim();
     // Always redirect to live platform so mobile email clients can open it
     const redirectUrl =
       window.location.hostname === "localhost"
@@ -70,7 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const lastName = nameParts.slice(1).join(" ") || "";
 
     const { data, error } = await supabase.auth.signUp({
-      email,
+      email: cleanEmail,
       password,
       options: {
         emailRedirectTo: redirectUrl,

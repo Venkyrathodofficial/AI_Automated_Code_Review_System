@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Link, Navigate, useSearchParams } from "react-router-dom";
+import { useState, useEffect, useRef } from "react";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -56,6 +56,7 @@ const contentByMode: Record<
 
 const Login = () => {
   const { user, signIn, signUp } = useAuth();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   const initialMode: AuthMode = searchParams.get("signup") === "true" ? "signup" : "signin";
@@ -72,17 +73,25 @@ const Login = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const isVerifiedCallback = searchParams.get("verified") === "true";
+  const isInitialVerification = useRef(searchParams.get("verified") === "true");
 
   useEffect(() => {
-    if (isVerifiedCallback) {
+    if (isInitialVerification.current) {
       // Ensure any session created during email token verification is cleared
       // so the user explicitly logs in using their newly created credentials
       supabase.auth.signOut().catch(() => {});
       setSuccess("Account email verified successfully! Please sign in with your credentials.");
       setMode("signin");
+      // Clean query parameter from browser address bar
+      try {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } catch {}
+      const timer = setTimeout(() => {
+        isInitialVerification.current = false;
+      }, 400);
+      return () => clearTimeout(timer);
     }
-  }, [isVerifiedCallback]);
+  }, []);
 
   // Left panel showcase slides
   const [activeSlide, setActiveSlide] = useState(0);
@@ -173,8 +182,8 @@ const Login = () => {
     return () => clearInterval(slideTimer);
   }, []);
 
-  // User login always directs to the User Dashboard, unless arriving via verification callback
-  if (user && !isVerifiedCallback) {
+  // User login always directs to the User Dashboard (unless clearing initial verification callback)
+  if (user && !isInitialVerification.current) {
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -218,8 +227,15 @@ const Login = () => {
     }
 
     const { error: signinError } = await signIn(email, password);
-    if (signinError) setError(signinError.message);
+    if (signinError) {
+      setError(signinError.message);
+      setLoading(false);
+      return;
+    }
+
+    isInitialVerification.current = false;
     setLoading(false);
+    navigate("/dashboard", { replace: true });
   };
 
   const handleResetSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
