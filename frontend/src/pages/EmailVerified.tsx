@@ -10,6 +10,7 @@ import {
   Cpu,
   Terminal,
 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 export default function EmailVerified() {
   const navigate = useNavigate();
@@ -36,7 +37,9 @@ export default function EmailVerified() {
       setCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(interval);
-          navigate("/login?verified=true");
+          supabase.auth.signOut().catch(() => {}).finally(() => {
+            navigate("/login?verified=true", { replace: true });
+          });
           return 0;
         }
         return prev - 1;
@@ -46,8 +49,11 @@ export default function EmailVerified() {
     return () => clearInterval(interval);
   }, [step, navigate]);
 
-  const handleProceed = () => {
-    navigate("/login?verified=true");
+  const handleProceed = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch {}
+    navigate("/login?verified=true", { replace: true });
   };
 
   return (

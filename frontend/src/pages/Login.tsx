@@ -72,12 +72,17 @@ const Login = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  const isVerifiedCallback = searchParams.get("verified") === "true";
+
   useEffect(() => {
-    if (searchParams.get("verified") === "true") {
-      setSuccess("Account email verified successfully! You can now log in.");
+    if (isVerifiedCallback) {
+      // Ensure any session created during email token verification is cleared
+      // so the user explicitly logs in using their newly created credentials
+      supabase.auth.signOut().catch(() => {});
+      setSuccess("Account email verified successfully! Please sign in with your credentials.");
       setMode("signin");
     }
-  }, [searchParams]);
+  }, [isVerifiedCallback]);
 
   // Left panel showcase slides
   const [activeSlide, setActiveSlide] = useState(0);
@@ -168,8 +173,8 @@ const Login = () => {
     return () => clearInterval(slideTimer);
   }, []);
 
-  // User login always directs to the User Dashboard
-  if (user) {
+  // User login always directs to the User Dashboard, unless arriving via verification callback
+  if (user && !isVerifiedCallback) {
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -199,7 +204,7 @@ const Login = () => {
         return;
       }
 
-      const { error: signupError } = await signUp(email, password);
+      const { error: signupError } = await signUp(email, password, name);
       if (signupError) {
         setError(signupError.message);
       } else {

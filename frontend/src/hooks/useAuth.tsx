@@ -14,7 +14,7 @@ interface AuthContextType {
   session: Session | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signUp: (email: string, password: string, name?: string) => Promise<{ error: Error | null }>;
   signInWithGoogle: () => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
 }
@@ -57,18 +57,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error as Error | null };
   };
 
-  const signUp = async (email: string, password: string) => {
+  const signUp = async (email: string, password: string, name?: string) => {
     // Always redirect to live platform so mobile email clients can open it
     const redirectUrl =
       window.location.hostname === "localhost"
         ? "https://codeaurorasentinel.vercel.app/auth/verified"
         : `${window.location.origin}/auth/verified`;
 
+    const trimmedName = name?.trim() || "";
+    const nameParts = trimmedName ? trimmedName.split(/\s+/) : [];
+    const firstName = nameParts[0] || "";
+    const lastName = nameParts.slice(1).join(" ") || "";
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: redirectUrl,
+        data: {
+          full_name: trimmedName,
+          name: trimmedName,
+          first_name: firstName,
+          last_name: lastName,
+        },
       },
     });
     if (!error && data.user) {

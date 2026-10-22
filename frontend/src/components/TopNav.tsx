@@ -19,10 +19,11 @@ export function TopNav({ title, subtitle }: TopNavProps) {
   const { data: issues = [] } = useReviews();
 
   const meta = user?.user_metadata || {};
-  const displayName = meta.full_name || meta.first_name || user?.email?.split("@")[0] || "User";
+  const displayName = meta.full_name || meta.name || meta.first_name || user?.email?.split("@")[0] || "User";
+  const nameParts = displayName.trim().split(/\s+/);
   const initials =
-    ((meta.first_name?.[0] || displayName[0] || "").toUpperCase()) +
-    ((meta.last_name?.[0] || "").toUpperCase() || "");
+    (meta.first_name?.[0] || nameParts[0]?.[0] || "U").toUpperCase() +
+    (meta.last_name?.[0] || (nameParts.length > 1 ? nameParts[nameParts.length - 1][0] : "")).toUpperCase();
   const email = user?.email || "";
 
   // --- Search ---
