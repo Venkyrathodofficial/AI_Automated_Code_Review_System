@@ -216,7 +216,7 @@ export default function ReportShare() {
             <p className="text-xs text-slate-400 mb-4">
               Get premium grade scorecards, automated fixes, and Slack/email alerts in minutes.
             </p>
-            <Link to="/login?signup=true">
+            <Link to="/login">
               <Button size="sm" className="bg-indigo-600 hover:bg-indigo-500 text-white w-full">
                 Get Started Free <ChevronRight className="h-3.5 w-3.5 ml-1" />
               </Button>

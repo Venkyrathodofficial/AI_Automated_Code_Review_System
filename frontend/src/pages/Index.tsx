@@ -8,7 +8,7 @@ import { motion } from "framer-motion";
 import { GitCommit, Loader2, Activity, Sparkles, ArrowUpRight, ChevronRight, Shield, RefreshCw, Trash2, Filter } from "lucide-react";
 import { useReviews, useRepositories, usePurgeReviews } from "@/hooks/useReviews";
 import { formatDistanceToNow } from "date-fns";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { IssueDetailModal } from "@/components/IssueDetailModal";
 import { Issue } from "@/data/mockData";
 import { toast } from "sonner";
@@ -17,6 +17,10 @@ const Index = () => {
   const [selectedRepo, setSelectedRepo] = useState<string>("all");
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
   const [isPurging, setIsPurging] = useState(false);
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
 
   const { data: repositories = [] } = useRepositories();
   const { data: issues = [], isLoading, refetch, isRefetching } = useReviews(selectedRepo);
@@ -87,7 +91,7 @@ const Index = () => {
           <TopNav title="Dashboard" subtitle="Overview of your code review pipeline" />
           <main className="flex-1 overflow-auto p-3 sm:p-6 bg-background space-y-5 sm:space-y-6">
             <OnboardingTour />
-            
+
             {/* Dashboard Header Bar — Repository Filter & Actions */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-2xl border border-border bg-card shadow-sm">
               <div className="flex items-center gap-3">
@@ -146,7 +150,7 @@ const Index = () => {
             <StatsGrid selectedRepo={selectedRepo} />
 
             {/* Action Center Section */}
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4 }}
@@ -180,28 +184,27 @@ const Index = () => {
               {topFixes.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {topFixes.map((fix) => (
-                    <div 
+                    <div
                       key={fix.id}
                       className="group flex flex-col justify-between p-4 rounded-xl border border-border/85 bg-secondary/15 hover:bg-secondary/35 dark:hover:bg-muted/30 hover:border-primary/20 transition-all duration-200"
                     >
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-[9px] font-bold tracking-wider text-muted-foreground uppercase">PRIORITY {fix.priority}</span>
-                          <span className={`text-[9px] font-bold uppercase rounded-md px-1.5 py-0.5 ${
-                            fix.severity === "critical" ? "bg-red-50 text-red-650 dark:bg-red-950/20 dark:text-red-400" :
-                            fix.severity === "high" ? "bg-orange-50 text-orange-655 dark:bg-orange-950/20 dark:text-orange-400" :
-                            "bg-amber-50 text-amber-655 dark:bg-amber-950/20 dark:text-amber-400"
-                          }`}>
+                          <span className={`text-[9px] font-bold uppercase rounded-md px-1.5 py-0.5 ${fix.severity === "critical" ? "bg-red-50 text-red-650 dark:bg-red-950/20 dark:text-red-400" :
+                              fix.severity === "high" ? "bg-orange-50 text-orange-655 dark:bg-orange-950/20 dark:text-orange-400" :
+                                "bg-amber-50 text-amber-655 dark:bg-amber-950/20 dark:text-amber-400"
+                            }`}>
                             {fix.severity}
                           </span>
                         </div>
                         <h4 className="text-xs font-bold text-card-foreground line-clamp-1 group-hover:text-primary transition-colors">{fix.title}</h4>
                         <p className="text-[10px] font-mono text-muted-foreground truncate">{fix.fileName}</p>
                       </div>
-                      
+
                       <div className="flex items-center justify-between mt-4 pt-3 border-t border-border/40">
                         <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">{fix.boost}</span>
-                        <button 
+                        <button
                           onClick={() => setSelectedIssue(fix.originalIssue)}
                           className="flex items-center gap-1 text-[10px] font-bold text-muted-foreground hover:text-primary transition-colors"
                         >
@@ -222,7 +225,7 @@ const Index = () => {
             </motion.div>
 
             {/* Risk and Trend Charts */}
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.2 }}
@@ -269,8 +272,8 @@ const Index = () => {
               ) : (
                 <div className="space-y-4">
                   {recentActivity.map((item) => (
-                    <div 
-                      key={item.id} 
+                    <div
+                      key={item.id}
                       className="flex items-center justify-between p-3 rounded-xl hover:bg-secondary/20 transition-colors border border-transparent hover:border-border/30"
                     >
                       <div className="flex items-center gap-3 min-w-0">

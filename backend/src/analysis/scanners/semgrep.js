@@ -1,96 +1,120 @@
 const NormalizedFinding = require("../models/normalizedFinding");
-const { exec } = require("child_process");
+const { execFile } = require("child_process");
 const util = require("util");
-const execPromise = util.promisify(exec);
+const execFilePromise = util.promisify(execFile);
 const fs = require("fs").promises;
-const os = require("os");
 const path = require("path");
 
 class SemgrepScanner {
   constructor() {
     this.name = "SemgrepScanner";
+    this.status = "IDLE"; // IDLE, COMPLETED, UNAVAILABLE, FAILED
+    this.error = null;
   }
 
   async scan(files) {
     const findings = [];
-    if (files.length === 0) return findings;
+    this.status = "RUNNING";
+    this.error = null;
 
-    // Create a temporary directory inside the workspace to avoid Windows Semgrep non-git hangs
+    if (!Array.isArray(files) || files.length === 0) {
+      this.status = "COMPLETED";
+      return findings;
+    }
+
+    // Create a temporary directory inside the workspace
     const workspaceTmpParent = path.join(__dirname, "../../../");
     const tmpDir = await fs.mkdtemp(path.join(workspaceTmpParent, "temp-semgrep-"));
 
     try {
-      // Write files to tmpDir
+      // Write files to tmpDir safely
       for (const file of files) {
-        // Ensure subdirectories exist if file.path has them
-        const destPath = path.join(tmpDir, file.path);
+        if (!file || !file.path) continue;
+        const normalizedRelPath = path.normalize(file.path).replace(/^(\.\.[\/\\])+/, "");
+        const destPath = path.join(tmpDir, normalizedRelPath);
         await fs.mkdir(path.dirname(destPath), { recursive: true });
         await fs.writeFile(destPath, file.content || "");
       }
 
-      // Run semgrep using pip-installed global package
-      // Using --config "p/default" which includes standard security rules
-      const safeTmpDir = tmpDir.replace(/\\/g, "/");
-      const { stdout } = await execPromise(`semgrep scan --metrics=off --json --config "p/default" "${safeTmpDir}"`);
-      
-      const semgrepOutput = JSON.parse(stdout);
-      
-      if (semgrepOutput && semgrepOutput.results) {
-        for (const result of semgrepOutput.results) {
-          // Re-map the path back to the original file path
-          const relativePath = path.relative(tmpDir, result.path);
-          
-          let severity = "Medium";
-          if (result.extra.severity === "ERROR") severity = "High";
-          if (result.extra.severity === "WARNING") severity = "Medium";
-          if (result.extra.severity === "INFO") severity = "Low";
+      // Execute semgrep safely using execFile without shell interpolation
+      const semgrepArgs = [
+        "scan",
+        "--metrics=off",
+        "--json",
+        "--config",
+        "p/default",
+        tmpDir,
+      ];
 
-          findings.push(new NormalizedFinding({
-            title: result.check_id.split('.').pop() || "Semgrep Finding",
-            category: result.extra.metadata?.cwe ? "security" : "quality",
-            severity: severity,
-            file: relativePath,
-            line: result.start.line,
-            evidence: result.extra.lines || "",
-            scanner: this.name,
-            cwe: Array.isArray(result.extra.metadata?.cwe) ? result.extra.metadata.cwe[0] : (result.extra.metadata?.cwe || null)
-          }));
+      let stdoutData = "";
+      try {
+        const { stdout } = await execFilePromise("semgrep", semgrepArgs, {
+          timeout: 45000,
+          maxBuffer: 10 * 1024 * 1024,
+        });
+        stdoutData = stdout;
+      } catch (execErr) {
+        // Semgrep exits with status 1 when findings are present; stdout still has valid JSON
+        if (execErr.stdout && execErr.stdout.trim().startsWith("{")) {
+          stdoutData = execErr.stdout;
+        } else {
+          // Binary missing, timeout, or crashed
+          const isNotFound =
+            execErr.code === "ENOENT" ||
+            (execErr.message &&
+              (execErr.message.includes("not found") ||
+                execErr.message.includes("ENOENT")));
+
+          if (isNotFound) {
+            this.status = "UNAVAILABLE";
+            this.error = "Semgrep CLI is not installed in the runtime environment.";
+            throw new Error(`[SemgrepScanner] Engine unavailable: ${this.error}`);
+          } else {
+            this.status = "FAILED";
+            this.error = execErr.message;
+            throw new Error(`[SemgrepScanner] Execution failed: ${execErr.message}`);
+          }
         }
       }
-    } catch (err) {
-      // If Semgrep exits with 1, it means it found issues, stdout still has JSON.
-      // If it's another error (like not installed), log it.
-      if (err.stdout) {
+
+      // Parse JSON findings
+      if (stdoutData) {
         try {
-          const semgrepOutput = JSON.parse(err.stdout);
-          if (semgrepOutput && semgrepOutput.results) {
+          const semgrepOutput = JSON.parse(stdoutData);
+          if (semgrepOutput && Array.isArray(semgrepOutput.results)) {
             for (const result of semgrepOutput.results) {
               const relativePath = path.relative(tmpDir, result.path);
-              let severity = "Medium";
-              if (result.extra.severity === "ERROR") severity = "High";
-              if (result.extra.severity === "WARNING") severity = "Medium";
-              if (result.extra.severity === "INFO") severity = "Low";
 
-              findings.push(new NormalizedFinding({
-                title: result.check_id.split('.').pop() || "Semgrep Finding",
-                category: result.extra.metadata?.cwe ? "security" : "quality",
-                severity: severity,
-                file: relativePath,
-                line: result.start.line,
-                evidence: result.extra.lines || "",
-                scanner: this.name,
-                cwe: Array.isArray(result.extra.metadata?.cwe) ? result.extra.metadata.cwe[0] : (result.extra.metadata?.cwe || null)
-              }));
+              let severity = "Medium";
+              if (result.extra?.severity === "ERROR") severity = "High";
+              if (result.extra?.severity === "WARNING") severity = "Medium";
+              if (result.extra?.severity === "INFO") severity = "Low";
+
+              findings.push(
+                new NormalizedFinding({
+                  title: result.check_id.split(".").pop() || "Semgrep Finding",
+                  category: result.extra?.metadata?.cwe ? "security" : "quality",
+                  severity: severity,
+                  file: relativePath,
+                  line: result.start?.line || 1,
+                  evidence: result.extra?.lines || "",
+                  scanner: this.name,
+                  cwe: Array.isArray(result.extra?.metadata?.cwe)
+                    ? result.extra.metadata.cwe[0]
+                    : result.extra?.metadata?.cwe || null,
+                })
+              );
             }
           }
+          this.status = "COMPLETED";
         } catch (parseErr) {
-          console.error(`[SemgrepScanner] Failed to parse Semgrep output: ${parseErr.message}`);
+          this.status = "FAILED";
+          this.error = `Failed to parse Semgrep output JSON: ${parseErr.message}`;
+          throw new Error(`[SemgrepScanner] ${this.error}`);
         }
-      } else {
-        console.warn(`[SemgrepScanner] Failed to run semgrep: ${err.message}. Ensure it is installed.`);
       }
     } finally {
-      // Clean up tmp directory
+      // Clean up temp directory safely
       try {
         await fs.rm(tmpDir, { recursive: true, force: true });
       } catch (cleanupErr) {

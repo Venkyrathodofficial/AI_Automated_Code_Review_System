@@ -64,7 +64,7 @@ export default function Leaderboard() {
                 Log In
               </Button>
             </Link>
-            <Link to="/login?signup=true">
+            <Link to="/login">
               <Button className="bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/25">
                 Join Sentinel
               </Button>

@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Users,
@@ -42,16 +43,24 @@ import {
   Code,
   FileCode,
   ArrowUpDown,
+  GitBranch,
+  Inbox,
+  RotateCcw,
+  Send,
+  Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/components/ui/use-toast";
 import { useAdminDashboard, useUpdateAdminSettings } from "@/hooks/useAdmin";
 import { useAuth } from "@/hooks/useAuth";
 import { AdminRepository, AdminIssue, AdminUser, ActivityEntry, PromoCode, fetchPromoCodes, createPromoCode, deletePromoCode, togglePromoCode, fetchAiUsage, AiUsageSummary, AdminCategoryBreakdown } from "@/lib/adminApi";
 import { formatDistanceToNow, format } from "date-fns";
+import { SentinelLockLoader } from "@/components/SentinelLockLoader";
 
-type ActiveView = "dashboard" | "users" | "repositories" | "issues" | "activity" | "promo_codes" | "ai_usage" | "settings";
+type ActiveView = "dashboard" | "users" | "repositories" | "issues" | "activity" | "promo_codes" | "ai_usage" | "pipeline" | "incidents" | "settings";
 
 /* ── Animation variants ── */
 const fadeIn = {
@@ -1498,6 +1507,449 @@ function AiUsageView() {
   );
 }
 
+/* ══════════════════════════════════════════════════════════════════════════════
+   ███ PIPELINE & EXECUTION OBSERVABILITY VIEW
+   ══════════════════════════════════════════════════════════════════════════════ */
+function PipelineView() {
+  const { session } = useAuth();
+  const { toast } = useToast();
+  const [executions, setExecutions] = useState<any[]>([]);
+  const [scanners, setScanners] = useState<any[]>([]);
+  const [selectedExec, setSelectedExec] = useState<any>(null);
+  const [stages, setStages] = useState<any[]>([]);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+
+  const loadData = async () => {
+    try {
+      const [execRes, scanRes] = await Promise.all([
+        fetch("/api/admin/executions", { headers: { Authorization: `Bearer ${session?.access_token}` } }),
+        fetch("/api/admin/scanners", { headers: { Authorization: `Bearer ${session?.access_token}` } }),
+      ]);
+      if (execRes.ok) {
+        const d = await execRes.json();
+        setExecutions(d.executions || []);
+      }
+      if (scanRes.ok) {
+        const s = await scanRes.json();
+        setScanners(s.engines || []);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, [session?.access_token]);
+
+  const selectExecution = async (exec: any) => {
+    setSelectedExec(exec);
+    try {
+      const res = await fetch(`/api/admin/executions/${exec.id}`, {
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      if (res.ok) {
+        const d = await res.json();
+        setStages(d.stages || []);
+      }
+    } catch {}
+  };
+
+  const handleRetry = async (id: string) => {
+    try {
+      setRetryingId(id);
+      const res = await fetch(`/api/admin/executions/${id}/retry`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Retry failed");
+      toast({ title: "Safe Retry Enqueued", description: `Execution ${id} set to QUEUED.` });
+      await loadData();
+      if (selectedExec?.id === id) selectExecution(selectedExec);
+    } catch (err: any) {
+      toast({ title: "Retry Failed", description: err.message, variant: "destructive" });
+    } finally {
+      setRetryingId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <GitBranch className="h-5 w-5 text-primary" /> Pipeline Observability & Scanner Status
+          </h2>
+          <p className="text-sm text-gray-500">Live execution telemetry, stage-by-stage latencies, and scanner health</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={loadData} className="rounded-xl gap-2">
+          <RotateCcw className="h-3.5 w-3.5" /> Refresh
+        </Button>
+      </div>
+
+      {/* Scanner Health Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {scanners.map((s) => (
+          <div key={s.id} className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-gray-900 dark:text-white">{s.displayName}</span>
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                  s.available
+                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                    : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                }`}
+              >
+                {s.status}
+              </span>
+            </div>
+            <p className="text-[11px] text-gray-500">v{s.version} • {s.reason || "Operational"}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Executions Table & Detail */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+          <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
+            <h3 className="font-semibold text-sm text-gray-900 dark:text-white">Recent Pipeline Executions</h3>
+            <span className="text-xs text-gray-500">{executions.length} runs</span>
+          </div>
+          <div className="divide-y divide-gray-100 dark:divide-gray-800 max-h-[500px] overflow-y-auto">
+            {executions.length === 0 ? (
+              <div className="p-8 text-center text-xs text-gray-500">No executions recorded yet.</div>
+            ) : (
+              executions.map((e) => (
+                <div
+                  key={e.id}
+                  onClick={() => selectExecution(e)}
+                  className={`p-4 transition-all hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer flex justify-between items-center ${
+                    selectedExec?.id === e.id ? "bg-primary/5 border-l-4 border-primary" : ""
+                  }`}
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs font-bold text-primary">{e.execution_ref}</span>
+                      <span
+                        className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                          e.status === "COMPLETED"
+                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                            : e.status === "PARTIAL"
+                            ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                            : e.status === "RUNNING"
+                            ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                            : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                        }`}
+                      >
+                        {e.status}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 font-mono">
+                      {e.correlation_id} • {e.findings_count} findings
+                    </p>
+                  </div>
+                  <span className="text-[11px] text-gray-400">
+                    {formatDistanceToNow(new Date(e.created_at), { addSuffix: true })}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Stage Latencies Detail */}
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 space-y-4">
+          <h3 className="font-semibold text-sm text-gray-900 dark:text-white flex items-center gap-2">
+            <Clock className="h-4 w-4 text-primary" /> Stage Telemetry
+          </h3>
+          {selectedExec ? (
+            <div className="space-y-4">
+              <div>
+                <p className="font-mono text-xs font-bold text-primary">{selectedExec.execution_ref}</p>
+                <p className="text-xs text-gray-500 mt-1 font-mono">Trace: {selectedExec.correlation_id}</p>
+              </div>
+              <div className="space-y-2">
+                {stages.map((st) => (
+                  <div
+                    key={st.id}
+                    className="p-2.5 rounded-xl bg-gray-50 dark:bg-gray-800/60 flex justify-between items-center text-xs"
+                  >
+                    <span className="font-medium text-gray-700 dark:text-gray-300">{st.stage_name}</span>
+                    <span className="font-mono text-gray-500">{st.duration_ms}ms</span>
+                  </div>
+                ))}
+              </div>
+              {(selectedExec.status === "FAILED" || selectedExec.status === "CANCELLED") && (
+                <Button
+                  size="sm"
+                  disabled={retryingId === selectedExec.id}
+                  onClick={() => handleRetry(selectedExec.id)}
+                  className="w-full rounded-xl bg-primary hover:bg-primary/90 text-xs"
+                >
+                  <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                  {retryingId === selectedExec.id ? "Queuing..." : "Safe Retry Execution"}
+                </Button>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-500 text-center py-8">Select an execution to view stage latencies.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   ███ STAFF INCIDENT SUPPORT QUEUE VIEW
+   ══════════════════════════════════════════════════════════════════════════════ */
+function IncidentsView() {
+  const { session } = useAuth();
+  const { toast } = useToast();
+  const [incidents, setIncidents] = useState<any[]>([]);
+  const [selectedInc, setSelectedInc] = useState<any>(null);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [replyText, setReplyText] = useState("");
+  const [isInternal, setIsInternal] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("ALL");
+
+  const loadIncidents = async () => {
+    try {
+      const q = statusFilter !== "ALL" ? `?status=${statusFilter}` : "";
+      const res = await fetch(`/api/admin/incidents${q}`, {
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      if (res.ok) {
+        const d = await res.json();
+        setIncidents(d.incidents || []);
+        if (d.incidents?.length > 0 && !selectedInc) {
+          selectIncident(d.incidents[0]);
+        }
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    loadIncidents();
+  }, [session?.access_token, statusFilter]);
+
+  const selectIncident = async (inc: any) => {
+    setSelectedInc(inc);
+    try {
+      const res = await fetch(`/api/admin/incidents/${inc.id}`, {
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      if (res.ok) {
+        const d = await res.json();
+        setSelectedInc(d.incident);
+        setMessages(d.messages || []);
+      }
+    } catch {}
+  };
+
+  const handleSendMessage = async () => {
+    if (!selectedInc || !replyText.trim()) return;
+    try {
+      const res = await fetch(`/api/admin/incidents/${selectedInc.id}/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ message: replyText.trim(), is_internal: isInternal }),
+      });
+      if (!res.ok) throw new Error("Failed to post message");
+      const d = await res.json();
+      setMessages((prev) => [...prev, d.message]);
+      setReplyText("");
+      toast({
+        title: isInternal ? "Internal Note Saved" : "Customer Reply Dispatched",
+        description: isInternal ? "Private to staff members only." : "Customer can view this in their portal.",
+      });
+    } catch (err: any) {
+      toast({ title: "Failed", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const handleTransition = async (status: string) => {
+    if (!selectedInc) return;
+    try {
+      const res = await fetch(`/api/admin/incidents/${selectedInc.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) throw new Error("Transition failed");
+      toast({ title: "Status Updated", description: `Incident status set to ${status}` });
+      await selectIncident(selectedInc);
+      await loadIncidents();
+    } catch (err: any) {
+      toast({ title: "Transition Denied", description: err.message, variant: "destructive" });
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <Inbox className="h-5 w-5 text-primary" /> Support Ticket Workspace
+          </h2>
+          <p className="text-sm text-gray-500">Triage incidents, enforce SLA targets, and write confidential notes</p>
+        </div>
+        <div className="flex gap-2">
+          {["ALL", "NEW", "IN_PROGRESS", "RESOLVED"].map((s) => (
+            <button
+              key={s}
+              onClick={() => setStatusFilter(s)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                statusFilter === s
+                  ? "bg-primary text-white"
+                  : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Ticket List */}
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden divide-y divide-gray-100 dark:divide-gray-800 max-h-[550px] overflow-y-auto">
+          {incidents.length === 0 ? (
+            <div className="p-8 text-center text-xs text-gray-500">No tickets matching filter.</div>
+          ) : (
+            incidents.map((inc) => (
+              <div
+                key={inc.id}
+                onClick={() => selectIncident(inc)}
+                className={`p-4 transition-all hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer space-y-1 ${
+                  selectedInc?.id === inc.id ? "bg-primary/5 border-l-4 border-primary" : ""
+                }`}
+              >
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-mono text-primary font-bold">{inc.incident_ref}</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase bg-gray-100 dark:bg-gray-800">
+                    {inc.status}
+                  </span>
+                </div>
+                <p className="text-xs font-medium text-gray-800 dark:text-gray-200 line-clamp-1">{inc.title}</p>
+                <div className="flex justify-between text-[11px] text-gray-400">
+                  <span className="text-rose-500 font-semibold">{inc.priority} Priority</span>
+                  <span>{formatDistanceToNow(new Date(inc.created_at), { addSuffix: true })}</span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Detail & Communication */}
+        <div className="lg:col-span-2 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 flex flex-col h-[550px] overflow-hidden">
+          {selectedInc ? (
+            <>
+              <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-800/30">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm font-bold text-primary">{selectedInc.incident_ref}</span>
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded bg-gray-200 dark:bg-gray-700">
+                      {selectedInc.priority}
+                    </span>
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded bg-gray-200 dark:bg-gray-700">
+                      {selectedInc.status}
+                    </span>
+                  </div>
+                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mt-1">{selectedInc.title}</h4>
+                </div>
+                <div className="flex gap-2">
+                  {selectedInc.status === "NEW" && (
+                    <Button
+                      size="sm"
+                      onClick={() => handleTransition("IN_PROGRESS")}
+                      className="rounded-xl text-xs h-8 bg-primary hover:bg-primary/90"
+                    >
+                      Accept Ticket
+                    </Button>
+                  )}
+                  {selectedInc.status === "IN_PROGRESS" && (
+                    <Button
+                      size="sm"
+                      onClick={() => handleTransition("RESOLVED")}
+                      className="rounded-xl text-xs h-8 bg-emerald-600 hover:bg-emerald-500 text-white"
+                    >
+                      Resolve Ticket
+                    </Button>
+                  )}
+                  {selectedInc.status === "RESOLVED" && (
+                    <Button
+                      size="sm"
+                      onClick={() => handleTransition("REOPENED")}
+                      className="rounded-xl text-xs h-8 bg-amber-600 hover:bg-amber-500 text-white"
+                    >
+                      Reopen
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* Messages list */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {messages.map((m) => (
+                  <div
+                    key={m.id}
+                    className={`p-3 rounded-xl text-xs max-w-[85%] ${
+                      m.is_internal
+                        ? "bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/40 text-amber-900 dark:text-amber-300 ml-auto"
+                        : "bg-gray-50 dark:bg-gray-800 text-gray-800 dark:text-gray-200 mr-auto"
+                    }`}
+                  >
+                    <div className="flex justify-between items-center gap-4 text-[10px] text-gray-400 mb-1">
+                      <span className="font-semibold">
+                        {m.is_internal ? "🔒 CONFIDENTIAL INTERNAL NOTE" : m.author_email}
+                      </span>
+                      <span>{format(new Date(m.created_at), "MMM d, HH:mm")}</span>
+                    </div>
+                    <p className="whitespace-pre-wrap">{m.message}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Staff Input */}
+              <div className="p-3 border-t border-gray-100 dark:border-gray-800 space-y-2 bg-gray-50/50 dark:bg-gray-900">
+                <div className="flex items-center gap-4 text-xs">
+                  <label className="flex items-center gap-1.5 cursor-pointer text-gray-700 dark:text-gray-300">
+                    <input type="radio" checked={!isInternal} onChange={() => setIsInternal(false)} /> Customer-Visible Reply
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer text-amber-600 dark:text-amber-400 font-medium">
+                    <input type="radio" checked={isInternal} onChange={() => setIsInternal(true)} /> 🔒 Confidential Internal Note
+                  </label>
+                </div>
+                <div className="flex gap-2">
+                  <Textarea
+                    placeholder={isInternal ? "Write internal staff note..." : "Write reply to customer..."}
+                    value={replyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    className="min-h-[60px] rounded-xl text-xs resize-none"
+                  />
+                  <Button onClick={handleSendMessage} disabled={!replyText.trim()} className="h-auto px-4 rounded-xl">
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-gray-500 text-center py-16">Select an incident to view conversation.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const AdminDashboard = () => {
   const { data, isLoading, error } = useAdminDashboard();
   const updateSettings = useUpdateAdminSettings();
@@ -1506,26 +1958,26 @@ const AdminDashboard = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
-          <p className="mt-3 text-sm text-gray-500">Loading dashboard...</p>
-        </div>
-      </div>
+      <SentinelLockLoader
+        message="Loading Mission Control..."
+        subMessage="Synchronizing real-time telemetry, incidents, and scanner pipelines"
+      />
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
-        <div className="text-center max-w-md mx-auto p-8">
-          <div className="w-16 h-16 bg-red-100 dark:bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
+      <div className="min-h-screen flex items-center justify-center bg-[#060709] saas-unified-grid text-white p-4">
+        <div className="text-center max-w-md mx-auto p-8 rounded-3xl bg-[#0c0e14]/90 border border-white/10 shadow-2xl backdrop-blur-xl">
+          <div className="w-16 h-16 bg-red-950/40 border border-red-800/40 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <Shield className="h-8 w-8 text-red-500" />
           </div>
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Access Denied</h2>
-          <p className="text-gray-500 dark:text-gray-400 mb-6">You don't have permission to access the admin panel.</p>
+          <h2 className="text-xl font-bold text-white mb-2">Access Denied</h2>
+          <p className="text-gray-400 mb-6 text-xs leading-relaxed">
+            This account does not have clearance for administrative mission control.
+          </p>
           <a href="/admin/login">
-            <Button className="rounded-xl gap-2 bg-primary hover:bg-primary/90">
+            <Button className="rounded-full gap-2 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold px-6">
               <Shield className="h-4 w-4" /> Admin Login
             </Button>
           </a>
@@ -1544,6 +1996,8 @@ const AdminDashboard = () => {
     repositories: "Repositories",
     issues: "Issues",
     activity: "Activity",
+    pipeline: "Pipeline & Scanner Telemetry",
+    incidents: "Incident Support Workspace",
     promo_codes: "Promo Codes",
     ai_usage: "AI Usage & Budget",
     settings: "Settings",
@@ -1551,7 +2005,7 @@ const AdminDashboard = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex">
-      {/* ── Sidebar ── */}
+      {/* ── Admin Dedicated Sidebar ── */}
       <aside className="w-64 bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 flex flex-col fixed h-full z-50">
         <div className="p-6 border-b border-gray-100 dark:border-gray-800">
           <div className="flex items-center gap-3">
@@ -1565,12 +2019,19 @@ const AdminDashboard = () => {
           </div>
         </div>
 
-        <nav className="flex-1 p-4 space-y-1">
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           <NavItem icon={LayoutDashboard} label="Dashboard" active={activeView === "dashboard"} onClick={() => setActiveView("dashboard")} />
           <NavItem icon={Users} label="Users" badge={totalUsers} active={activeView === "users"} onClick={() => setActiveView("users")} />
           <NavItem icon={GitFork} label="Repositories" badge={totalRepos} active={activeView === "repositories"} onClick={() => setActiveView("repositories")} />
           <NavItem icon={AlertTriangle} label="Issues" badge={openIssues} active={activeView === "issues"} onClick={() => setActiveView("issues")} />
           <NavItem icon={Activity} label="Activity" active={activeView === "activity"} onClick={() => setActiveView("activity")} />
+
+          <div className="border-t border-gray-100 dark:border-gray-800 my-2 pt-2">
+            <p className="text-[10px] uppercase font-bold text-gray-400 px-4 mb-1">Operations</p>
+            <NavItem icon={GitBranch} label="Pipeline & Scanners" active={activeView === "pipeline"} onClick={() => setActiveView("pipeline")} />
+            <NavItem icon={Inbox} label="Support Queue" active={activeView === "incidents"} onClick={() => setActiveView("incidents")} />
+          </div>
+
           <div className="border-t border-gray-100 dark:border-gray-800 my-2 pt-2">
             <p className="text-[10px] uppercase font-bold text-gray-400 px-4 mb-1">Beta</p>
             <NavItem icon={Key} label="Promo Codes" active={activeView === "promo_codes"} onClick={() => setActiveView("promo_codes")} />
@@ -1582,13 +2043,19 @@ const AdminDashboard = () => {
 
       {/* ── Main Content ── */}
       <main className="flex-1 ml-64">
-        <header className="sticky top-0 z-40 bg-white/80 dark:bg-gray-900/80 backdrop-blur-lg border-b border-gray-100 dark:border-gray-800">
+        <header className="sticky top-0 z-40 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 shadow-sm">
           <div className="flex items-center justify-between px-8 py-4">
             <div>
               <h1 className="text-xl font-bold text-gray-900 dark:text-white">{viewTitles[activeView]}</h1>
               <p className="text-sm text-gray-500">Welcome back, Admin</p>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <Link
+                to="/dashboard"
+                className="text-xs text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors font-medium"
+              >
+                <ExternalLink className="h-3.5 w-3.5" /> Developer Workspace
+              </Link>
               <button className="relative p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                 <Bell className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                 <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
@@ -1612,6 +2079,8 @@ const AdminDashboard = () => {
               {activeView === "repositories" && <RepositoriesView repositories={repositories} users={users} />}
               {activeView === "issues" && <IssuesView categoryBreakdown={categoryBreakdown} />}
               {activeView === "activity" && <ActivityView activities={recentActivity} />}
+              {activeView === "pipeline" && <PipelineView />}
+              {activeView === "incidents" && <IncidentsView />}
               {activeView === "promo_codes" && <PromoCodesView />}
               {activeView === "ai_usage" && <AiUsageView />}
               {activeView === "settings" && <SettingsView settings={settings} updateSettings={updateSettings} />}
@@ -1624,3 +2093,4 @@ const AdminDashboard = () => {
 };
 
 export default AdminDashboard;
+

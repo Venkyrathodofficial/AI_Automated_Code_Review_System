@@ -1,6 +1,6 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
-import { Loader2 } from "lucide-react";
+import { SentinelLockLoader } from "@/components/SentinelLockLoader";
 import { MaintenanceOverlay } from "@/components/MaintenanceOverlay";
 import { NoticeBanner } from "@/components/NoticeBanner";
 
@@ -9,9 +9,10 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
+      <SentinelLockLoader
+        message="Loading protected workspace..."
+        subMessage="Validating active cryptographic session & tenant policies"
+      />
     );
   }
 

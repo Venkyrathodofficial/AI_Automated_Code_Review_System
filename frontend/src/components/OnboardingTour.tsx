@@ -131,13 +131,12 @@ export function OnboardingTour() {
               {tourSteps.map((_, idx) => (
                 <div
                   key={idx}
-                  className={`rounded-full transition-all duration-300 ${
-                    idx === step
+                  className={`rounded-full transition-all duration-300 ${idx === step
                       ? "w-7 h-2 bg-primary"
                       : idx < step
-                      ? "w-2 h-2 bg-primary/50"
-                      : "w-2 h-2 bg-muted-foreground/25"
-                  }`}
+                        ? "w-2 h-2 bg-primary/50"
+                        : "w-2 h-2 bg-muted-foreground/25"
+                    }`}
                 />
               ))}
             </div>

@@ -72,6 +72,13 @@ const Login = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (searchParams.get("verified") === "true") {
+      setSuccess("Account email verified successfully! You can now log in.");
+      setMode("signin");
+    }
+  }, [searchParams]);
+
   // Left panel showcase slides
   const [activeSlide, setActiveSlide] = useState(0);
   const showcaseSlides = [
@@ -183,7 +190,7 @@ const Login = () => {
 
     try {
       sessionStorage.removeItem("sentinel_app_sidebar_scroll");
-    } catch {}
+    } catch { }
 
     if (mode === "signup") {
       if (password !== confirmPassword) {
@@ -239,8 +246,8 @@ const Login = () => {
             mode === "signup"
               ? "Creating protected account..."
               : mode === "reset"
-              ? "Dispatching recovery link..."
-              : "Authenticating credentials..."
+                ? "Dispatching recovery link..."
+                : "Authenticating credentials..."
           }
           subMessage="Verifying cryptographic session & access permissions"
         />
@@ -277,10 +284,10 @@ const Login = () => {
       {/* ───── MAIN AUTH & SHOWCASE CONSOLE ───── */}
       <main className="relative z-20 flex-1 flex items-center justify-center max-w-6xl mx-auto w-full px-3.5 sm:px-6 py-6 sm:py-12">
         <div className="w-full grid lg:grid-cols-12 gap-8 lg:gap-12 items-center">
-          
+
           {/* ──── LEFT COLUMN: CYBERSECURITY SHOWCASE & 3D ARTWORK (5 COLS) ──── */}
           <div className="hidden lg:flex lg:col-span-6 flex-col justify-between space-y-8 pr-4">
-            
+
             {/* Header Eyebrow */}
             <div className="space-y-4">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3.5 py-1 text-[11px] font-bold uppercase tracking-wider text-gray-300 backdrop-blur-md">
@@ -363,9 +370,8 @@ const Login = () => {
                   <button
                     key={idx}
                     onClick={() => setActiveSlide(idx)}
-                    className={`h-1.5 rounded-full transition-all duration-300 ${
-                      activeSlide === idx ? "w-6 bg-[#2ef06e]" : "w-1.5 bg-white/20 hover:bg-white/40"
-                    }`}
+                    className={`h-1.5 rounded-full transition-all duration-300 ${activeSlide === idx ? "w-6 bg-[#2ef06e]" : "w-1.5 bg-white/20 hover:bg-white/40"
+                      }`}
                     aria-label={`Show slide ${idx + 1}`}
                   />
                 ))}
@@ -376,29 +382,27 @@ const Login = () => {
           {/* ──── RIGHT COLUMN: SLEEK DARK GLASS AUTH FORM CARD (6 COLS) ──── */}
           <div className="w-full lg:col-span-6 flex justify-center">
             <div className="w-full max-w-[460px]">
-              
+
               {/* Segmented Pill Mode Switcher (Sign In / Create Account) */}
               {mode !== "reset" && (
                 <div className="p-1 bg-[#12141a]/90 border border-white/10 rounded-full flex items-center mb-5 sm:mb-6 shadow-xl backdrop-blur-md">
                   <button
                     type="button"
                     onClick={() => switchMode("signin")}
-                    className={`flex-1 py-2 sm:py-2.5 text-xs font-extrabold rounded-full transition-all ${
-                      mode === "signin"
+                    className={`flex-1 py-2 sm:py-2.5 text-xs font-extrabold rounded-full transition-all ${mode === "signin"
                         ? "bg-white text-black shadow-md"
                         : "text-gray-400 hover:text-white"
-                    }`}
+                      }`}
                   >
                     Sign In
                   </button>
                   <button
                     type="button"
                     onClick={() => switchMode("signup")}
-                    className={`flex-1 py-2 sm:py-2.5 text-xs font-extrabold rounded-full transition-all ${
-                      mode === "signup"
+                    className={`flex-1 py-2 sm:py-2.5 text-xs font-extrabold rounded-full transition-all ${mode === "signup"
                         ? "bg-[#2ef06e] text-black shadow-md shadow-[#2ef06e]/20"
                         : "text-gray-400 hover:text-white"
-                    }`}
+                      }`}
                   >
                     Create Account
                   </button>

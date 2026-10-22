@@ -58,7 +58,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    // Always redirect to live platform so mobile email clients can open it
+    const redirectUrl =
+      window.location.hostname === "localhost"
+        ? "https://codeaurorasentinel.vercel.app/auth/verified"
+        : `${window.location.origin}/auth/verified`;
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: redirectUrl,
+      },
+    });
     if (!error && data.user) {
       logActivity("signup", data.user.id, email);
     }

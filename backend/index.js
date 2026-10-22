@@ -1,5 +1,7 @@
 require("dotenv").config();
 
+const fs = require("fs");
+const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
@@ -7,12 +9,15 @@ const { createClient } = require("@supabase/supabase-js");
 const AnalysisOrchestrator = require("./src/analysis/orchestrator");
 const FixValidator = require("./src/analysis/remediation/fixValidator");
 const PRVerifier = require("./src/analysis/github/prVerifier");
+const { encryptToken, decryptToken, maskToken } = require("./src/security/tokenCipher");
+const { generateShareToken, verifyShareToken } = require("./src/security/shareToken");
 
 const app = express();
 app.use(cors());
 
-// Version routing middleware: maps incoming client /api/v1/... requests internally to /api/...
+// Version routing & URL sanitizer middleware
 app.use((req, res, next) => {
+  req.url = req.url.replace(/(%0A|[\r\n\s])+$/i, "");
   if (req.url.startsWith("/api/v1/")) {
     req.url = req.url.replace(/^\/api\/v1/, "/api");
   }
@@ -40,10 +45,11 @@ function getGithubPayload(req) {
 }
 
 function verifyGithubSignature(req, secret) {
-  if (!secret) return true; // fallback if no secret is configured
+  if (!secret || typeof secret !== "string" || secret.trim() === "") {
+    return false; // REJECT: Webhook requests must have a configured secret to prevent forgery
+  }
   const sig = req.headers["x-hub-signature-256"];
-  if (!sig) return false; // reject unsigned requests when a secret is configured
-  if (!req.rawBody) return false;
+  if (!sig || !req.rawBody) return false;
 
   const expected = `sha256=${crypto
     .createHmac("sha256", secret)
@@ -82,7 +88,53 @@ const {
   sendDetailedIssueReportEmail,
   sendMobileReportReadyNotification,
   buildIssueReportPdfBuffer,
+  sendRegistrationConfirmationEmail,
 } = require("./alertService");
+
+// Send / Test Registration Confirmation Email
+app.post("/api/auth/send-confirmation", async (req, res) => {
+  try {
+    const { email, confirmationUrl, userName } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: "Missing required parameter 'email'." });
+    }
+    const success = await sendRegistrationConfirmationEmail({
+      to: email,
+      confirmationUrl,
+      userName,
+    });
+    return res.json({ success: true, message: `Confirmation email dispatched to ${email}` });
+  } catch (err) {
+    console.error("[AUTH] Confirmation email error:", err.message);
+    return res.status(500).json({ error: err.message || "Failed to send confirmation email" });
+  }
+});
+
+// Live Email Template Preview Route
+app.get("/email-preview", (req, res) => {
+  const templatePath = path.join(__dirname, "../docs/templates/registration_confirmation_email.html");
+  if (!fs.existsSync(templatePath)) {
+    return res.status(404).send("Email template not found at " + templatePath);
+  }
+  let content = fs.readFileSync(templatePath, "utf8");
+  content = content
+    .replace(/{{\s*\.ConfirmationURL\s*}}/g, "http://localhost:8080/auth/verified")
+    .replace(/{{\s*\.Email\s*}}/g, "rathod@codeaurora.in")
+    .replace(/{{\s*\.Year\s*}}/g, new Date().getFullYear().toString());
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  return res.send(content);
+});
+
+app.get("/email-preview/raw", (req, res) => {
+  const templatePath = path.join(__dirname, "../docs/templates/registration_confirmation_email.html");
+  if (!fs.existsSync(templatePath)) {
+    return res.status(404).send("Email template not found");
+  }
+  const content = fs.readFileSync(templatePath, "utf8");
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  return res.send(content);
+});
 
 app.post("/api/fix-code", async (req, res) => {
   try {
@@ -148,7 +200,7 @@ app.post("/api/commit-fix", authMiddleware, async (req, res) => {
       if (profileErr || !profile?.github_token) {
         return res.status(401).json({ error: "GitHub account not connected. Please connect via Settings or provide a token manually." });
       }
-      githubToken = profile.github_token;
+      githubToken = decryptToken(profile.github_token);
     }
 
     // 2. Fetch the current file's SHA from GitHub API
@@ -263,8 +315,8 @@ app.get('/api/auth/github/callback', async (req, res) => {
       return res.status(401).send('Invalid Supabase session');
     }
 
-    // Store GitHub token in profiles table
-    await supabase.from('profiles').upsert({ id: user.id, github_token: accessToken, updated_at: new Date().toISOString() });
+    // Store GitHub token in profiles table (encrypted at rest)
+    await supabase.from('profiles').upsert({ id: user.id, github_token: encryptToken(accessToken), updated_at: new Date().toISOString() });
 
     // Redirect to frontend with success
     res.redirect(`${FRONTEND_URL}/settings?github=connected`);
@@ -753,7 +805,7 @@ async function scanRepository(repoFullName, userId, ref, planTier = "free") {
   let userToken = null;
   try {
     const { data: profile } = await supabase.from('profiles').select('github_token').eq('id', userId).single();
-    if (profile && profile.github_token) userToken = profile.github_token;
+    if (profile && profile.github_token) userToken = decryptToken(profile.github_token);
   } catch {}
 
   let files;
@@ -958,7 +1010,7 @@ async function analyzeChangedFiles(repoFullName, userId, filePaths, commitId, co
       .select("github_token")
       .eq("id", userId)
       .single();
-    if (profile && profile.github_token) userToken = profile.github_token;
+    if (profile && profile.github_token) userToken = decryptToken(profile.github_token);
   } catch {}
 
   const codeExtensions = new Set([
@@ -1426,7 +1478,7 @@ app.post("/api/repositories/connect", authMiddleware, async (req, res) => {
     let userToken = null;
     try {
       const { data: profile } = await supabase.from('profiles').select('github_token').eq('id', req.user.id).single();
-      if (profile && profile.github_token) userToken = profile.github_token;
+      if (profile && profile.github_token) userToken = decryptToken(profile.github_token);
     } catch {}
     const checkRes = await fetch(`https://api.github.com/repos/${repoFullName.trim()}`, { headers: ghHeaders(userToken) });
     if (checkRes.status === 404) {
@@ -1537,7 +1589,7 @@ app.get("/api/file-content", authMiddleware, async (req, res) => {
         .select("github_token")
         .eq("id", req.user.id)
         .single();
-      if (profile && profile.github_token) userToken = profile.github_token;
+      if (profile && profile.github_token) userToken = decryptToken(profile.github_token);
     } catch {}
 
     const content = await fetchFileContent(repo, file, ref, userToken);
@@ -1701,7 +1753,11 @@ app.get("/api/scan-history", authMiddleware, async (req, res) => {
     if (error) {
       return res.status(500).json({ error: error.message });
     }
-    return res.json(data || []);
+    const enriched = (data || []).map(s => ({
+      ...s,
+      share_token: generateShareToken(s.id)
+    }));
+    return res.json(enriched);
   } catch (err) {
     return res.status(500).json({ error: "Internal Server Error" });
   }
@@ -1808,11 +1864,12 @@ app.get("/api/leaderboard", async (req, res) => {
 });
 
 // ============================
-// API: Public Scan Report (No Auth Required)
+// API: Public Scan Report (Protected with shareToken or owner auth)
 // ============================
 app.get("/api/public/reports/:scanId", async (req, res) => {
   try {
     const { scanId } = req.params;
+    const { token: shareToken } = req.query;
     
     const { data: scan, error: scanErr } = await supabase
       .from("scan_history")
@@ -1822,6 +1879,23 @@ app.get("/api/public/reports/:scanId", async (req, res) => {
 
     if (scanErr || !scan) {
       return res.status(404).json({ error: "Report not found" });
+    }
+
+    // Check optional authentication header
+    let user = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const jwt = authHeader.split(" ")[1];
+      const { data: { user: authUser } } = await supabase.auth.getUser(jwt);
+      user = authUser;
+    }
+
+    const isOwner = user && scan.user_id === user.id;
+    const hasValidToken = shareToken && verifyShareToken(scanId, shareToken);
+
+    // If caller is neither the owner nor presenting a valid share token, reject
+    if (!isOwner && !hasValidToken && !scan.is_public) {
+      return res.status(403).json({ error: "Access denied. Valid share token or authorization required." });
     }
 
     const { data: reviews, error: reviewsErr } = await supabase
@@ -1835,7 +1909,10 @@ app.get("/api/public/reports/:scanId", async (req, res) => {
     }
 
     return res.json({
-      scan,
+      scan: {
+        ...scan,
+        share_token: isOwner ? generateShareToken(scan.id) : undefined
+      },
       reviews: reviews || []
     });
   } catch (err) {
@@ -1849,7 +1926,7 @@ app.get("/api/public/reports/:scanId", async (req, res) => {
 // ============================
 app.get(["/api/reports/download", "/api/reports/pdf"], async (req, res) => {
   try {
-    const { scanId, repo } = req.query;
+    const { scanId, repo, token: shareToken } = req.query;
     
     // Check if authenticated
     let user = null;
@@ -1857,17 +1934,19 @@ app.get(["/api/reports/download", "/api/reports/pdf"], async (req, res) => {
     
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith("Bearer ")) {
-      const token = authHeader.split(" ")[1];
-      const { data: { user: authUser } } = await supabase.auth.getUser(token);
+      const jwt = authHeader.split(" ")[1];
+      const { data: { user: authUser } } = await supabase.auth.getUser(jwt);
       if (authUser) {
         user = authUser;
-        client = supabaseForUser(token);
+        client = supabaseForUser(jwt);
       }
     }
 
-    // Fallback: If no auth, we ONLY allow downloading if scanId is provided
-    if (!user && !scanId) {
-      return res.status(401).json({ error: "Missing authorization token" });
+    const isShareTokenValid = scanId && shareToken && verifyShareToken(scanId, shareToken);
+
+    // Require either a logged-in user or a verified share token
+    if (!user && !isShareTokenValid) {
+      return res.status(401).json({ error: "Authentication or valid share token required to download report" });
     }
 
     let reviews = [];
@@ -1878,11 +1957,21 @@ app.get(["/api/reports/download", "/api/reports/pdf"], async (req, res) => {
     let userEmail = user ? user.email : "developer@codeaurora.sentinel";
 
     if (scanId) {
-      const { data: scan } = await client
+      const { data: scan } = await supabase
         .from("scan_history")
         .select("*")
         .eq("id", scanId)
         .single();
+      
+      if (!scan) {
+        return res.status(404).json({ error: "Scan record not found" });
+      }
+
+      // Enforce ownership if downloading without a valid share token
+      const isOwner = user && scan.user_id === user.id;
+      if (!isOwner && !isShareTokenValid && !scan.is_public) {
+        return res.status(403).json({ error: "Forbidden: You do not have permission to download this report" });
+      }
       
       if (scan) {
         repositoryName = scan.repository_name;
@@ -2180,15 +2269,16 @@ app.post("/webhook/github/:userId", async (req, res) => {
               .eq("id", userId)
               .single();
 
-            if (profile?.github_token) {
+            const token = profile?.github_token ? decryptToken(profile.github_token) : null;
+            if (token) {
               const prVerifier = new PRVerifier();
-              const files = await prVerifier.fetchPRFiles(repository, prNumber, profile.github_token);
+              const files = await prVerifier.fetchPRFiles(repository, prNumber, token);
 
               if (files.length > 0) {
                 const result = await prVerifier.verify(files);
                 const comment = prVerifier.generatePRComment(result, repository);
 
-                await prVerifier.postPRComment(repository, prNumber, comment, profile.github_token);
+                await prVerifier.postPRComment(repository, prNumber, comment, token);
 
                 if (headSha && result.readiness) {
                   await prVerifier.postStatusCheck(
@@ -2196,7 +2286,7 @@ app.post("/webhook/github/:userId", async (req, res) => {
                     headSha,
                     result.readiness.verdict,
                     `Sentinel: ${result.readiness.verdict} (${result.readiness.overallScore}/100)`,
-                    profile.github_token
+                    token
                   );
                 }
 
@@ -2252,10 +2342,10 @@ app.post("/webhook/github", async (req, res) => {
       return res.status(404).send("Repository not found or user not connected");
     }
 
-    // Verify webhook signature if secret is configured
-    if (userRepo.webhook_secret && !verifyGithubSignature(req, userRepo.webhook_secret)) {
+    // Verify webhook signature (strictly required)
+    if (!verifyGithubSignature(req, userRepo.webhook_secret)) {
       console.log(`❌ Legacy Webhook signature verification failed for repo: ${repository}`);
-      return res.status(401).send("Invalid signature");
+      return res.status(401).send("Invalid or missing webhook signature");
     }
 
     // Respond immediately, then analyze in background
@@ -2295,14 +2385,15 @@ app.post("/api/v2/pr/verify", authMiddleware, async (req, res) => {
       .eq("id", req.user.id)
       .single();
 
-    if (!profile?.github_token) {
+    const token = profile?.github_token ? decryptToken(profile.github_token) : null;
+    if (!token) {
       return res.status(401).json({ error: "GitHub account not connected." });
     }
 
     const prVerifier = new PRVerifier();
 
     // 1. Fetch changed files from the PR
-    const files = await prVerifier.fetchPRFiles(repoFullName, prNumber, profile.github_token);
+    const files = await prVerifier.fetchPRFiles(repoFullName, prNumber, token);
     
     if (files.length === 0) {
       return res.json({
@@ -2318,7 +2409,7 @@ app.post("/api/v2/pr/verify", authMiddleware, async (req, res) => {
     // 3. Generate and post comment
     const comment = prVerifier.generatePRComment(result, repoFullName);
     try {
-      await prVerifier.postPRComment(repoFullName, prNumber, comment, profile.github_token);
+      await prVerifier.postPRComment(repoFullName, prNumber, comment, token);
     } catch (commentErr) {
       console.error("Failed to post PR comment:", commentErr.message);
     }
@@ -2331,7 +2422,7 @@ app.post("/api/v2/pr/verify", authMiddleware, async (req, res) => {
         headers: {
           Accept: "application/vnd.github.v3+json",
           "User-Agent": "Sentinel-AI-Bot",
-          Authorization: `token ${profile.github_token}`
+          Authorization: `token ${token}`
         }
       });
       if (prRes.ok) {
@@ -2343,7 +2434,7 @@ app.post("/api/v2/pr/verify", authMiddleware, async (req, res) => {
             headSha,
             result.readiness.verdict,
             `Sentinel: ${result.readiness.verdict} (${result.readiness.overallScore}/100)`,
-            profile.github_token
+            token
           );
         }
       }
@@ -2564,11 +2655,24 @@ app.get("/api/billing/status", authMiddleware, async (req, res) => {
 // ============================
 async function adminMiddleware(req, res, next) {
   // Runs after authMiddleware — checks if user is an admin using request client (auth context)
-  const { data, error } = await req.supabase
+  let { data, error } = await req.supabase
     .from("admin_users")
     .select("id")
     .eq("user_id", req.user.id)
     .maybeSingle();
+
+  // Service role fallback if client RLS restricts read
+  if ((error || !data) && supabase) {
+    const fallback = await supabase
+      .from("admin_users")
+      .select("id")
+      .eq("user_id", req.user.id)
+      .maybeSingle();
+    if (fallback.data) {
+      data = fallback.data;
+      error = null;
+    }
+  }
 
   if (error || !data) {
     return res.status(403).json({ error: "Admin access required" });
@@ -2600,11 +2704,22 @@ app.get("/api/admin/settings", async (_req, res) => {
 // ============================
 app.get("/api/admin/check", authMiddleware, async (req, res) => {
   try {
-    const { data } = await req.supabase
+    let { data } = await req.supabase
       .from("admin_users")
       .select("id, role")
       .eq("user_id", req.user.id)
       .maybeSingle();
+
+    if (!data && supabase) {
+      const fallback = await supabase
+        .from("admin_users")
+        .select("id, role")
+        .eq("user_id", req.user.id)
+        .maybeSingle();
+      if (fallback.data) {
+        data = fallback.data;
+      }
+    }
 
     return res.json({ isAdmin: !!data, role: data?.role || null });
   } catch (err) {
@@ -3071,10 +3186,14 @@ app.post("/api/activity/log", async (req, res) => {
         user_agent: userAgent,
       });
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      console.warn("⚠️ Activity log non-fatal warning:", error.message);
+      return res.json({ success: false, warning: error.message });
+    }
     return res.json({ success: true });
   } catch (err) {
-    return res.status(500).json({ error: "Internal Server Error" });
+    console.warn("⚠️ Activity log exception:", err.message);
+    return res.json({ success: false, warning: err.message });
   }
 });
 
@@ -3225,7 +3344,17 @@ app.get("/api/admin/ai-usage", authMiddleware, adminMiddleware, async (req, res)
   }
 });
 
+// ==============================================================================
+// Sentinel Incidents & Admin Operations Console Routes
+// ==============================================================================
+const createIncidentRouter = require("./src/routes/incidentRoutes");
+const createAdminRouter = require("./src/routes/adminRoutes");
+
+app.use("/api/incidents", authMiddleware, createIncidentRouter(supabase));
+app.use("/api/admin", authMiddleware, createAdminRouter(supabase));
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Backend running on port ${PORT}`);
 });
+

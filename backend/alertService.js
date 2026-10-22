@@ -1,3 +1,5 @@
+const fs = require("fs");
+const path = require("path");
 const nodemailer = require("nodemailer");
 const { Client } = require("@notionhq/client");
 const PDFDocument = require("pdfkit");
@@ -13,12 +15,23 @@ const ONESIGNAL_API_KEY = process.env.ONESIGNAL_API_KEY;
 let transporter = null;
 
 function getTransporter() {
-  if (!EMAIL_USER || !EMAIL_PASS) return null;
+  const user = process.env.SMTP_USER || process.env.EMAIL_USER;
+  const pass = process.env.SMTP_PASS || process.env.EMAIL_PASS;
+  if (!user || !pass) return null;
   if (!transporter) {
-    transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: { user: EMAIL_USER, pass: EMAIL_PASS },
-    });
+    if (process.env.SMTP_HOST) {
+      transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST,
+        port: Number(process.env.SMTP_PORT) || 587,
+        secure: process.env.SMTP_SECURE === "true" || process.env.SMTP_PORT === "465",
+        auth: { user, pass },
+      });
+    } else {
+      transporter = nodemailer.createTransport({
+        service: "gmail",
+        auth: { user, pass },
+      });
+    }
   }
   return transporter;
 }
@@ -371,10 +384,62 @@ async function sendToNotion(issueData) {
   }
 }
 
+// Registration Confirmation Email
+async function sendRegistrationConfirmationEmail({ to, confirmationUrl, userName }) {
+  const tx = getTransporter();
+  if (!tx) {
+    console.warn("[ALERT] Email credentials/transporter not set. Cannot dispatch registration confirmation email.");
+    return false;
+  }
+
+  const sender = process.env.EMAIL_FROM || process.env.SMTP_USER || process.env.EMAIL_USER || "rathod@codeaurora.in";
+
+  let htmlContent = "";
+  try {
+    const templatePath = path.join(__dirname, "../docs/templates/registration_confirmation_email.html");
+    if (fs.existsSync(templatePath)) {
+      htmlContent = fs.readFileSync(templatePath, "utf8");
+    }
+  } catch (err) {
+    console.error("[ALERT] Failed reading template:", err.message);
+  }
+
+  const url = confirmationUrl || "http://localhost:8080/dashboard";
+  const renderedHtml = htmlContent
+    ? htmlContent
+        .replace(/{{\s*\.ConfirmationURL\s*}}/g, url)
+        .replace(/{{\s*\.Email\s*}}/g, to || "Security Engineer")
+        .replace(/{{\s*\.Year\s*}}/g, new Date().getFullYear().toString())
+    : `<div style="font-family:sans-serif;background:#0c0e14;color:#fff;padding:24px;border-radius:12px;">
+         <h2 style="color:#2ef06e;">Welcome to CodeAurora Sentinel AI</h2>
+         <p>Click below to confirm your registration:</p>
+         <p><a href="${url}" style="background:#2ef06e;color:#000;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:bold;">Confirm Account</a></p>
+       </div>`;
+
+  const mailOptions = {
+    from: `"CodeAurora Sentinel AI" <${sender}>`,
+    to,
+    subject: "Confirm your CodeAurora Sentinel registration",
+    html: renderedHtml,
+    text: `Welcome to CodeAurora Sentinel AI!\n\nPlease confirm your email address by opening the following link:\n${url}\n\nThis link will expire in 24 hours.\n\nCodeAurora Sentinel Team\nrathod@codeaurora.in`,
+  };
+
+  try {
+    const info = await tx.sendMail(mailOptions);
+    console.log(`[ALERT] Confirmation email sent to ${to} (MessageId: ${info.messageId})`);
+    return true;
+  } catch (err) {
+    console.error("[ALERT] Failed to send confirmation email:", err.message);
+    throw err;
+  }
+}
+
 module.exports = {
   sendEmailAlert,
   sendToNotion,
   sendDetailedIssueReportEmail,
   sendMobileReportReadyNotification,
   buildIssueReportPdfBuffer,
+  sendRegistrationConfirmationEmail,
 };
+

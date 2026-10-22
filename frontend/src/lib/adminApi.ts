@@ -37,10 +37,17 @@ export async function fetchAdminSettings(): Promise<AdminSettings> {
 // ---- Auth required ----
 
 export async function checkIsAdmin(): Promise<{ isAdmin: boolean; role: string | null }> {
-  const headers = await getAuthHeaders();
-  const res = await fetch(`${BASE}/admin/check`, { headers });
-  if (!res.ok) return { isAdmin: false, role: null };
-  return res.json();
+  try {
+    const headers = await getAuthHeaders();
+    if (!headers["Authorization"]) {
+      return { isAdmin: false, role: null };
+    }
+    const res = await fetch(`${BASE}/admin/check`, { headers });
+    if (!res.ok) return { isAdmin: false, role: null };
+    return res.json();
+  } catch {
+    return { isAdmin: false, role: null };
+  }
 }
 
 // ---- Admin only ----

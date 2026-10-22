@@ -1,0 +1,275 @@
+/**
+ * Sentinel Centralized Module Manifest (Frontend)
+ * Single source of truth for navigation, route mapping, permissions, and engine capability status.
+ */
+
+export interface ModuleDefinition {
+  id: string;
+  displayName: string;
+  route: string;
+  group: "Core Platform" | "Security Engines" | "Developer Workflows" | "Governance & Insights" | "Operations & Admin";
+  iconName: string;
+  requiredRole: "customer_member" | "customer_org_admin" | "support_agent" | "operations_engineer" | "platform_admin" | "platform_owner";
+  capabilityStatus: "GA" | "BETA" | "DEPRECATED";
+  description: string;
+}
+
+export const MODULE_GROUPS = {
+  CORE: "Core Platform",
+  ENGINES: "Security Engines",
+  WORKFLOWS: "Developer Workflows",
+  GOVERNANCE: "Governance & Insights",
+  ADMIN: "Operations & Admin",
+} as const;
+
+export const MODULE_MANIFEST: ModuleDefinition[] = [
+  // ── Core Platform ──
+  {
+    id: "dashboard",
+    displayName: "Dashboard",
+    route: "/dashboard",
+    group: "Core Platform",
+    iconName: "LayoutDashboard",
+    requiredRole: "customer_member",
+    capabilityStatus: "GA",
+    description: "Security posture overview and quick actions",
+  },
+  {
+    id: "repositories",
+    displayName: "Repositories",
+    route: "/repositories",
+    group: "Core Platform",
+    iconName: "GitFork",
+    requiredRole: "customer_member",
+    capabilityStatus: "GA",
+    description: "Connected Git repositories and automated review settings",
+  },
+  {
+    id: "issues",
+    displayName: "Issues & Findings",
+    route: "/issues",
+    group: "Core Platform",
+    iconName: "AlertTriangle",
+    requiredRole: "customer_member",
+    capabilityStatus: "GA",
+    description: "Triage and remediation tracking for detected vulnerabilities",
+  },
+
+  // ── Security Engines ──
+  {
+    id: "code-security",
+    displayName: "Code Security (SAST)",
+    route: "/code-security",
+    group: "Security Engines",
+    iconName: "Shield",
+    requiredRole: "customer_member",
+    capabilityStatus: "GA",
+    description: "Static code analysis for OWASP Top 10, SSRF, and injection flaws",
+  },
+  {
+    id: "supply-chain",
+    displayName: "Supply Chain (SCA)",
+    route: "/supply-chain",
+    group: "Security Engines",
+    iconName: "Layers",
+    requiredRole: "customer_member",
+    capabilityStatus: "GA",
+    description: "Open-source dependency vulnerability and lockfile graph analysis",
+  },
+  {
+    id: "secrets-security",
+    displayName: "Secrets Security",
+    route: "/secrets-security",
+    group: "Security Engines",
+    iconName: "Key",
+    requiredRole: "customer_member",
+    capabilityStatus: "GA",
+    description: "Detection and masking of API keys, fintech gateways, and cloud secrets",
+  },
+  {
+    id: "container-security",
+    displayName: "Container Security",
+    route: "/container-security",
+    group: "Security Engines",
+    iconName: "Boxes",
+    requiredRole: "customer_member",
+    capabilityStatus: "BETA",
+    description: "Dockerfile misconfiguration and container image vulnerability audits",
+  },
+  {
+    id: "cloud-security",
+    displayName: "Cloud Security (IaC)",
+    route: "/cloud-security",
+    group: "Security Engines",
+    iconName: "Cloud",
+    requiredRole: "customer_member",
+    capabilityStatus: "BETA",
+    description: "Terraform, Kubernetes, and CloudFormation posture evaluation",
+  },
+  {
+    id: "api-security",
+    displayName: "API Security",
+    route: "/api-security",
+    group: "Security Engines",
+    iconName: "Webhook",
+    requiredRole: "customer_member",
+    capabilityStatus: "BETA",
+    description: "OpenAPI schema checks and OWASP API Security Top 10 detection",
+  },
+
+  // ── Developer Workflows ──
+  {
+    id: "ai-security",
+    displayName: "AI Security & Guardrails",
+    route: "/workflows/ai-security",
+    group: "Developer Workflows",
+    iconName: "Bot",
+    requiredRole: "customer_member",
+    capabilityStatus: "GA",
+    description: "LLM guardrails, prompt injection detection, and AI review verification",
+  },
+  {
+    id: "workflows",
+    displayName: "CI/CD & Workflows",
+    route: "/workflows",
+    group: "Developer Workflows",
+    iconName: "GitMerge",
+    requiredRole: "customer_member",
+    capabilityStatus: "GA",
+    description: "GitHub Actions integrations and pull request gating policies",
+  },
+  {
+    id: "policies",
+    displayName: "Security Policies",
+    route: "/policies",
+    group: "Developer Workflows",
+    iconName: "ShieldCheck",
+    requiredRole: "customer_org_admin",
+    capabilityStatus: "GA",
+    description: "Guardrails, severity thresholds, and branch merge blocking rules",
+  },
+
+  // ── Governance & Incidents ──
+  {
+    id: "reports",
+    displayName: "Compliance & Reports",
+    route: "/reports",
+    group: "Governance & Insights",
+    iconName: "FileText",
+    requiredRole: "customer_member",
+    capabilityStatus: "GA",
+    description: "Exportable executive summaries, audit reports, and shareable links",
+  },
+  {
+    id: "incidents-customer",
+    displayName: "Support & Incidents",
+    route: "/incidents",
+    group: "Governance & Insights",
+    iconName: "LifeBuoy",
+    requiredRole: "customer_member",
+    capabilityStatus: "GA",
+    description: "Report technical issues, track tickets, and follow up with support",
+  },
+  {
+    id: "organization",
+    displayName: "Organization & Team",
+    route: "/organization",
+    group: "Governance & Insights",
+    iconName: "Building2",
+    requiredRole: "customer_org_admin",
+    capabilityStatus: "GA",
+    description: "Manage team memberships, workspace access, and billing",
+  },
+  {
+    id: "integrations",
+    displayName: "Integrations & Webhooks",
+    route: "/integrations",
+    group: "Governance & Insights",
+    iconName: "Cable",
+    requiredRole: "customer_org_admin",
+    capabilityStatus: "GA",
+    description: "Connect Slack, Jira, webhooks, and developer tooling",
+  },
+
+  // ── Staff Admin & Operations ──
+  {
+    id: "admin-operations",
+    displayName: "Operations Overview",
+    route: "/admin/operations",
+    group: "Operations & Admin",
+    iconName: "Activity",
+    requiredRole: "support_agent",
+    capabilityStatus: "GA",
+    description: "Platform health, queue latencies, engine status, and incident volume",
+  },
+  {
+    id: "admin-pipeline",
+    displayName: "Pipeline & Execution Monitor",
+    route: "/admin/pipeline",
+    group: "Operations & Admin",
+    iconName: "GitBranch",
+    requiredRole: "operations_engineer",
+    capabilityStatus: "GA",
+    description: "Real-time execution traces, stage telemetry, failure correlation, and retries",
+  },
+  {
+    id: "admin-incidents",
+    displayName: "Staff Incident Workspace",
+    route: "/admin/incidents",
+    group: "Operations & Admin",
+    iconName: "Inbox",
+    requiredRole: "support_agent",
+    capabilityStatus: "GA",
+    description: "Support ticket queue, SLA countdowns, confidential notes, and resolution",
+  },
+  {
+    id: "admin-organizations",
+    displayName: "Customer & Org Directory",
+    route: "/admin/organizations",
+    group: "Operations & Admin",
+    iconName: "Users",
+    requiredRole: "platform_admin",
+    capabilityStatus: "GA",
+    description: "Staff view of tenant accounts, projects, subscription status, and usage",
+  },
+  {
+    id: "admin-diagnostics",
+    displayName: "Logs & Diagnostics",
+    route: "/admin/diagnostics",
+    group: "Operations & Admin",
+    iconName: "Terminal",
+    requiredRole: "operations_engineer",
+    capabilityStatus: "GA",
+    description: "Sanitized error traces, correlation ID lookups, and redaction verification",
+  },
+  {
+    id: "admin-alerts",
+    displayName: "Alerts & Notifications",
+    route: "/admin/alerts",
+    group: "Operations & Admin",
+    iconName: "Bell",
+    requiredRole: "platform_admin",
+    capabilityStatus: "GA",
+    description: "Automated event triggers, deduplication rules, and notification routing",
+  },
+  {
+    id: "admin-audit",
+    displayName: "Audit Trail",
+    route: "/admin/audit-trail",
+    group: "Operations & Admin",
+    iconName: "ShieldAlert",
+    requiredRole: "platform_admin",
+    capabilityStatus: "GA",
+    description: "Immutable ledger of administrative actions, status transitions, and config updates",
+  },
+  {
+    id: "admin-settings",
+    displayName: "Admin Settings & RBAC",
+    route: "/admin/settings",
+    group: "Operations & Admin",
+    iconName: "Settings",
+    requiredRole: "platform_owner",
+    capabilityStatus: "GA",
+    description: "Platform-wide policies, maintenance mode, and staff access controls",
+  },
+];

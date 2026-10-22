@@ -6,7 +6,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "preview:email": "node preview-email.js",
+    "test": "node test/orchestrator.test.js && node test/sprint1_security_and_scanners.test.js && node test/sprint2_engines_expansion.test.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -16,7 +17,7 @@
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "node-fetch": "^2.7.0",
-    "nodemailer": "^8.0.4",
+    "nodemailer": "^10.1.7",
     "pdfkit": "^0.18.0"
   },
   "keywords": [],
